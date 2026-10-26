@@ -3,8 +3,8 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import { io } from 'socket.io-client';
 import L from 'leaflet';
 
-const API_BASE_URL = 'http://localhost:5000/api/e-tapok';
-const SOCKET_URL = 'http://localhost:5000';
+const API_BASE_URL = 'https://etapok-backend.onrender.com/api/e-tapok';
+const SOCKET_URL = 'https://etapok-backend.onrender.com';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
