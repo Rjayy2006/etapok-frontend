@@ -239,7 +239,7 @@ export default function App() {
     }
   }, [isOnline, syncOfflineReports]);
 
-  // Leaflet Map Initialization & Switchable Tile Layers (Default vs Satellite)
+  // Leaflet Map Initialization & Switchable Tile Layers with InvalidateSize Fix
   useEffect(() => {
     if (activeTab === 'map' && mapContainerRef.current) {
       if (!leafletMapRef.current && window.L) {
@@ -248,7 +248,11 @@ export default function App() {
       }
 
       if (leafletMapRef.current && window.L) {
-        // Swap Tile Layer based on mapType State
+        // Force map size recalculation to prevent gray tiles
+        setTimeout(() => {
+          leafletMapRef.current.invalidateSize();
+        }, 150);
+
         if (tileLayerRef.current) {
           tileLayerRef.current.remove();
         }
@@ -766,11 +770,10 @@ export default function App() {
                 <p className="text-xs text-gray-500">Real-time status pins geocoded across your municipal zone</p>
               </div>
 
-              {/* MAP TYPE SELECTOR (DEFAULT VS SATELLITE) */}
+              {/* MAP TYPE SELECTOR */}
               <div className="flex items-center space-x-3 bg-gray-50 p-2 rounded-2xl border">
                 <span className="text-xs font-black text-gray-700 ml-1">Map type:</span>
                 
-                {/* Default Map Option */}
                 <button
                   type="button"
                   onClick={() => setMapType('default')}
@@ -788,7 +791,6 @@ export default function App() {
                   </span>
                 </button>
 
-                {/* Satellite Map Option */}
                 <button
                   type="button"
                   onClick={() => setMapType('satellite')}
@@ -868,7 +870,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* GPS Location Pin Option */}
               <div>
                 <button
                   type="button"
@@ -879,7 +880,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* File Uploader */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Upload Photo (Optional)</label>
                 <input
