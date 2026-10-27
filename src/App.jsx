@@ -300,15 +300,23 @@ export default function App() {
     }
   };
 
-  // Metrics
+  // Filter reports according to Role: Residents only see their own submitted items
   const safeReports = Array.isArray(reports) ? reports : [];
-  const totalReports = safeReports.length;
-  const malataCount = safeReports.filter((r) => r && r.wasteType === 'Malata').length;
-  const diliMalataCount = safeReports.filter((r) => r && r.wasteType === 'Dili Malata').length;
-  const collectedCount = safeReports.filter((r) => r && r.status === 'Collected').length;
+  const visibleReports = safeReports.filter((r) => {
+    if (!r) return false;
+    if (user?.role === 'Resident') {
+      return r.userName && user?.name && r.userName.trim().toLowerCase() === user.name.trim().toLowerCase();
+    }
+    return true; // Admins and Collectors see all reports
+  });
+
+  const totalReports = visibleReports.length;
+  const malataCount = visibleReports.filter((r) => r && r.wasteType === 'Malata').length;
+  const diliMalataCount = visibleReports.filter((r) => r && r.wasteType === 'Dili Malata').length;
+  const collectedCount = visibleReports.filter((r) => r && r.status === 'Collected').length;
   const collectionRate = totalReports ? Math.round((collectedCount / totalReports) * 100) : 0;
 
-  const filteredReports = safeReports.filter((r) => {
+  const filteredReports = visibleReports.filter((r) => {
     if (filterWasteType === 'All') return true;
     return r && r.wasteType === filterWasteType;
   });
@@ -455,7 +463,7 @@ export default function App() {
                 : 'border-transparent text-gray-500 hover:text-gray-800'
             }`}
           >
-            📋 Barangay Feed ({safeReports.length})
+            📋 {user?.role === 'Resident' ? 'My Submission History' : 'Barangay Feed'} ({visibleReports.length})
           </button>
 
           {(user.role === 'Resident' || user.role === 'Admin') && (
@@ -487,7 +495,9 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-6 py-8 flex-grow w-full space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-2xl border shadow-sm text-center">
-            <span className="text-xs font-bold text-gray-400 uppercase">Total Reports</span>
+            <span className="text-xs font-bold text-gray-400 uppercase">
+              {user?.role === 'Resident' ? 'My Total Submissions' : 'Total Reports'}
+            </span>
             <p className="text-2xl font-black text-gray-800 mt-1">{totalReports}</p>
           </div>
           <div className="bg-white p-5 rounded-2xl border shadow-sm text-center">
@@ -508,7 +518,9 @@ export default function App() {
         {activeTab === 'reports' && (
           <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <h3 className="text-lg font-black text-gray-800">Barangay Waste Feed</h3>
+              <h3 className="text-lg font-black text-gray-800">
+                {user?.role === 'Resident' ? 'My Submitted Waste History' : 'Barangay Waste Feed'}
+              </h3>
               <div className="flex items-center space-x-2 text-xs font-bold text-gray-600">
                 <span>Filter:</span>
                 <select
@@ -525,7 +537,11 @@ export default function App() {
 
             {filteredReports.length === 0 ? (
               <div className="bg-white p-12 rounded-2xl text-center border text-gray-400">
-                <p className="text-sm font-bold">No waste reports recorded yet.</p>
+                <p className="text-sm font-bold">
+                  {user?.role === 'Resident'
+                    ? 'You have not submitted any waste reports yet.'
+                    : 'No waste reports recorded yet.'}
+                </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
