@@ -30,8 +30,11 @@ export default function App() {
     barangay: 'Barangay Central',
   });
 
-  // User Current Geolocation State (Defaulting to Maasin City area)
+  // User Current Geolocation State (Maasin City Area Default)
   const [currentGps, setCurrentGps] = useState({ lat: 10.1336, lng: 124.8415 });
+
+  // Map View Type State ('default' | 'satellite')
+  const [mapType, setMapType] = useState('default');
 
   // Data & App Navigation State
   const [reports, setReports] = useState([]);
@@ -59,6 +62,7 @@ export default function App() {
   const socketRef = useRef(null);
   const mapContainerRef = useRef(null);
   const leafletMapRef = useRef(null);
+  const tileLayerRef = useRef(null);
   const markersRef = useRef([]);
   const userMarkerRef = useRef(null);
 
@@ -78,7 +82,7 @@ export default function App() {
     }
   }, []);
 
-  // Detect Live Device Geolocation on Startup
+  // Detect Live Device Geolocation
   useEffect(() => {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -94,7 +98,7 @@ export default function App() {
     }
   }, []);
 
-  // OpenStreetMap Nominatim Geocoder Helper
+  // Geocoding Helper
   const geocodeTypedLocation = async (locationName, barangayName) => {
     try {
       const searchQuery = `${locationName}, ${barangayName}, Maasin City, Southern Leyte, Philippines`;
@@ -132,7 +136,7 @@ export default function App() {
           showToast('📍 Precise GPS location captured!', 'success');
         },
         () => {
-          showToast('Could not fetch GPS location. Please enable location permissions.', 'warning');
+          showToast('Could not fetch GPS location. Enable location permissions.', 'warning');
         }
       );
     } else {
@@ -235,19 +239,36 @@ export default function App() {
     }
   }, [isOnline, syncOfflineReports]);
 
-  // Leaflet Map Rendering
+  // Leaflet Map Initialization & Switchable Tile Layers (Default vs Satellite)
   useEffect(() => {
     if (activeTab === 'map' && mapContainerRef.current) {
       if (!leafletMapRef.current && window.L) {
         const map = window.L.map(mapContainerRef.current).setView([currentGps.lat, currentGps.lng], 14);
-        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap contributors',
-        }).addTo(map);
-
         leafletMapRef.current = map;
       }
 
       if (leafletMapRef.current && window.L) {
+        // Swap Tile Layer based on mapType State
+        if (tileLayerRef.current) {
+          tileLayerRef.current.remove();
+        }
+
+        const tileUrl =
+          mapType === 'satellite'
+            ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+            : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+        const tileAttribution =
+          mapType === 'satellite'
+            ? 'Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+            : '© OpenStreetMap contributors';
+
+        tileLayerRef.current = window.L.tileLayer(tileUrl, {
+          attribution: tileAttribution,
+          maxZoom: 19,
+        }).addTo(leafletMapRef.current);
+
+        // Clear markers
         markersRef.current.forEach((m) => m.remove());
         markersRef.current = [];
 
@@ -255,7 +276,7 @@ export default function App() {
           userMarkerRef.current.remove();
         }
 
-        // Live Device Position Blue Pin
+        // Device Location Marker
         const userIcon = window.L.divIcon({
           className: 'user-gps-pin',
           html: `<div style="background-color: #2563EB; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(37,99,235,0.8);"></div>`,
@@ -276,12 +297,11 @@ export default function App() {
             const lng = r.lng || currentGps.lng;
             mapBounds.push([lat, lng]);
 
-            // Accurate Status Colors: Red = Pending, Amber = In Progress, Green = Collected
             const badgeColor = r.status === 'Collected' ? '#10B981' : r.status === 'In Progress' ? '#F59E0B' : '#EF4444';
             
             const customIcon = window.L.divIcon({
               className: 'custom-pin',
-              html: `<div style="background-color: ${badgeColor}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.4);"></div>`,
+              html: `<div style="background-color: ${badgeColor}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.5);"></div>`,
               iconSize: [20, 20],
               iconAnchor: [10, 10],
             });
@@ -312,7 +332,7 @@ export default function App() {
         }
       }
     }
-  }, [activeTab, reports, selectedMapReportId, currentGps]);
+  }, [activeTab, reports, selectedMapReportId, currentGps, mapType]);
 
   const handleFocusOnMap = (reportId) => {
     setSelectedMapReportId(reportId);
@@ -348,7 +368,7 @@ export default function App() {
     showToast('Signed out successfully.', 'info');
   };
 
-  // Create Report Handler with Auto-Geocoding
+  // Create Report Handler
   const handleCreateReport = async (e) => {
     e.preventDefault();
     if (!newReport.description) {
@@ -359,7 +379,6 @@ export default function App() {
     let reportLat = newReport.lat;
     let reportLng = newReport.lng;
 
-    // Auto-Geocode typed location if GPS button wasn't explicitly clicked
     if (!reportLat || !reportLng) {
       const geocoded = await geocodeTypedLocation(
         newReport.locationName,
@@ -456,7 +475,7 @@ export default function App() {
     return r && r.wasteType === filterWasteType;
   });
 
-  // Public Unauthenticated Dashboard
+  // Public Dashboard
   if (!token || !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
@@ -587,7 +606,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Navigation Tabs */}
+      {/* Tabs Bar */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 flex space-x-6 text-sm font-bold">
           <button
@@ -741,21 +760,63 @@ export default function App() {
         {/* TAB 2: LIVE MAP VIEW */}
         {activeTab === 'map' && (
           <div className="bg-white p-6 rounded-3xl border shadow-sm space-y-4">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
                 <h3 className="text-xl font-black text-gray-800">Live Barangay Waste Map</h3>
-                <p className="text-xs text-gray-500">Real-time status pins automatically geocoded to typed barangays</p>
+                <p className="text-xs text-gray-500">Real-time status pins geocoded across your municipal zone</p>
               </div>
 
-              {/* Status Legend */}
-              <div className="flex items-center space-x-4 text-xs font-bold bg-gray-50 px-4 py-2 rounded-xl border">
-                <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-blue-600 inline-block shadow"></span><span>You</span></span>
-                <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-red-500 inline-block"></span><span>Pending</span></span>
-                <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-amber-500 inline-block"></span><span>In Progress</span></span>
-                <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span><span>Collected</span></span>
+              {/* MAP TYPE SELECTOR (DEFAULT VS SATELLITE) */}
+              <div className="flex items-center space-x-3 bg-gray-50 p-2 rounded-2xl border">
+                <span className="text-xs font-black text-gray-700 ml-1">Map type:</span>
+                
+                {/* Default Map Option */}
+                <button
+                  type="button"
+                  onClick={() => setMapType('default')}
+                  className={`flex flex-col items-center p-1.5 rounded-xl border-2 transition ${
+                    mapType === 'default'
+                      ? 'border-emerald-600 bg-white shadow-sm'
+                      : 'border-transparent opacity-70 hover:opacity-100'
+                  }`}
+                >
+                  <div className="w-10 h-10 rounded-lg bg-emerald-100 border border-emerald-300 flex items-center justify-center text-lg">
+                    🗺️
+                  </div>
+                  <span className={`text-[10px] font-bold mt-1 ${mapType === 'default' ? 'text-emerald-800' : 'text-gray-600'}`}>
+                    Default
+                  </span>
+                </button>
+
+                {/* Satellite Map Option */}
+                <button
+                  type="button"
+                  onClick={() => setMapType('satellite')}
+                  className={`flex flex-col items-center p-1.5 rounded-xl border-2 transition ${
+                    mapType === 'satellite'
+                      ? 'border-emerald-600 bg-white shadow-sm'
+                      : 'border-transparent opacity-70 hover:opacity-100'
+                  }`}
+                >
+                  <div className="w-10 h-10 rounded-lg bg-slate-800 border border-slate-600 flex items-center justify-center text-lg text-white">
+                    🛰️
+                  </div>
+                  <span className={`text-[10px] font-bold mt-1 ${mapType === 'satellite' ? 'text-emerald-800' : 'text-gray-600'}`}>
+                    Satellite
+                  </span>
+                </button>
               </div>
             </div>
 
+            {/* Status Legend */}
+            <div className="flex items-center justify-end space-x-4 text-xs font-bold bg-gray-50 px-4 py-2 rounded-xl border">
+              <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-blue-600 inline-block shadow"></span><span>You</span></span>
+              <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-red-500 inline-block"></span><span>Pending</span></span>
+              <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-amber-500 inline-block"></span><span>In Progress</span></span>
+              <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span><span>Collected</span></span>
+            </div>
+
+            {/* Leaflet Map Canvas */}
             <div ref={mapContainerRef} className="w-full h-96 rounded-2xl border shadow-inner z-10"></div>
           </div>
         )}
