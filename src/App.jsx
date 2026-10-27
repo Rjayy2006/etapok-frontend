@@ -30,17 +30,13 @@ export default function App() {
     barangay: 'Barangay Central',
   });
 
-  // User Current Geolocation State (Maasin City Default)
+  // User Current Geolocation State (Used for attached GPS coordinates)
   const [currentGps, setCurrentGps] = useState({ lat: 10.1336, lng: 124.8415 });
-
-  // Map View Type State ('default' | 'satellite')
-  const [mapType, setMapType] = useState('default');
 
   // Data & App Navigation State
   const [reports, setReports] = useState([]);
   const [activeTab, setActiveTab] = useState('reports');
   const [filterWasteType, setFilterWasteType] = useState('All');
-  const [selectedMapReportId, setSelectedMapReportId] = useState(null);
   const [toast, setToast] = useState(null);
 
   // AI Classification State
@@ -60,30 +56,13 @@ export default function App() {
   });
 
   const socketRef = useRef(null);
-  const mapContainerRef = useRef(null);
-  const leafletMapRef = useRef(null);
-  const tileLayerRef = useRef(null);
-  const markersRef = useRef([]);
-  const userMarkerRef = useRef(null);
-  const tempPinRef = useRef(null);
 
   const showToast = (message, type = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Dynamically Load Leaflet CSS
-  useEffect(() => {
-    if (!document.getElementById('leaflet-css')) {
-      const link = document.createElement('link');
-      link.id = 'leaflet-css';
-      link.rel = 'stylesheet';
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-      document.head.appendChild(link);
-    }
-  }, []);
-
-  // Detect Live Device Geolocation with High Accuracy
+  // Detect Live Device Geolocation
   useEffect(() => {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -94,16 +73,15 @@ export default function App() {
         },
         (err) => {
           console.warn('Geolocation access denied:', err.message);
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        }
       );
     }
   }, []);
 
-  // High Accuracy GPS Button Handler
+  // GPS Button Handler
   const handleGetGpsLocation = () => {
     if ('geolocation' in navigator) {
-      showToast('Fetching precise GPS satellite signal...', 'info');
+      showToast('Fetching GPS coordinates...', 'info');
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const lat = position.coords.latitude;
@@ -113,39 +91,17 @@ export default function App() {
             ...prev,
             lat,
             lng,
-            locationName: prev.locationName || `Precise GPS (${lat.toFixed(5)}, ${lng.toFixed(5)})`,
+            locationName: prev.locationName || `GPS Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
           }));
-          showToast('📍 High-Accuracy GPS Coordinates Captured!', 'success');
+          showToast('📍 GPS Location Captured!', 'success');
         },
         () => {
-          showToast('Could not fetch precise location. Please check browser GPS permissions.', 'warning');
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+          showToast('Could not fetch GPS location. Check browser permissions.', 'warning');
+        }
       );
     } else {
       showToast('Geolocation is not supported by your browser.', 'error');
     }
-  };
-
-  // Geocoding Helper
-  const geocodeTypedLocation = async (locationName, barangayName) => {
-    try {
-      const searchQuery = `${locationName}, ${barangayName}, Maasin City, Southern Leyte, Philippines`;
-      const res = await axios.get(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-          searchQuery
-        )}`
-      );
-      if (res.data && res.data.length > 0) {
-        return {
-          lat: parseFloat(res.data[0].lat),
-          lng: parseFloat(res.data[0].lon),
-        };
-      }
-    } catch (err) {
-      console.warn('Geocoding fallback:', err);
-    }
-    return null;
   };
 
   // File Upload Handlers
@@ -189,7 +145,7 @@ export default function App() {
     try {
       const offlineData = await getOfflineReports();
       if (!offlineData || offlineData.length === 0) return;
-      
+
       setIsSyncing(true);
       for (const item of offlineData) {
         try {
@@ -235,134 +191,6 @@ export default function App() {
     }
   }, [isOnline, syncOfflineReports]);
 
-  // Leaflet Interactive Map Rendering & Click-to-Pin Location Selection
-  useEffect(() => {
-    if (activeTab === 'map' && mapContainerRef.current) {
-      if (!leafletMapRef.current && window.L) {
-        const map = window.L.map(mapContainerRef.current).setView([currentGps.lat, currentGps.lng], 15);
-        
-        // CLICK ON MAP TO SET EXACT CUSTOM PIN
-        map.on('click', (e) => {
-          const { lat, lng } = e.latlng;
-          setNewReport((prev) => ({
-            ...prev,
-            lat,
-            lng,
-            locationName: `Selected Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
-          }));
-
-          if (tempPinRef.current) {
-            tempPinRef.current.remove();
-          }
-
-          const pinIcon = window.L.divIcon({
-            className: 'temp-pin',
-            html: `<div style="background-color: #8B5CF6; width: 22px; height: 22px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(139,92,246,0.8);"></div>`,
-            iconSize: [22, 22],
-            iconAnchor: [11, 11],
-          });
-
-          tempPinRef.current = window.L.marker([lat, lng], { icon: pinIcon })
-            .addTo(map)
-            .bindPopup('<b>📌 Custom Picked Location</b><br>Will be used for new report submission')
-            .openPopup();
-
-          showToast('📌 Custom map pin location selected!', 'info');
-        });
-
-        leafletMapRef.current = map;
-      }
-
-      if (leafletMapRef.current && window.L) {
-        setTimeout(() => {
-          leafletMapRef.current.invalidateSize();
-        }, 150);
-
-        if (tileLayerRef.current) {
-          tileLayerRef.current.remove();
-        }
-
-        // Esri High-Resolution Street Map vs Esri Satellite Imagery
-        const tileUrl =
-          mapType === 'satellite'
-            ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-            : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
-
-        tileLayerRef.current = window.L.tileLayer(tileUrl, {
-          attribution: 'Tiles © Esri',
-          maxZoom: 19,
-        }).addTo(leafletMapRef.current);
-
-        markersRef.current.forEach((m) => m.remove());
-        markersRef.current = [];
-
-        if (userMarkerRef.current) {
-          userMarkerRef.current.remove();
-        }
-
-        // User Live GPS Blue Marker
-        const userIcon = window.L.divIcon({
-          className: 'user-gps-pin',
-          html: `<div style="background-color: #2563EB; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(37,99,235,0.8);"></div>`,
-          iconSize: [20, 20],
-          iconAnchor: [10, 10],
-        });
-
-        userMarkerRef.current = window.L.marker([currentGps.lat, currentGps.lng], { icon: userIcon })
-          .addTo(leafletMapRef.current)
-          .bindPopup('<b>📍 Your Current Device Location</b>');
-
-        const safeArr = Array.isArray(reports) ? reports : [];
-        const mapBounds = [[currentGps.lat, currentGps.lng]];
-
-        safeArr.forEach((r) => {
-          if (r) {
-            const lat = r.lat || currentGps.lat;
-            const lng = r.lng || currentGps.lng;
-            mapBounds.push([lat, lng]);
-
-            const badgeColor = r.status === 'Collected' ? '#10B981' : r.status === 'In Progress' ? '#F59E0B' : '#EF4444';
-            
-            const customIcon = window.L.divIcon({
-              className: 'custom-pin',
-              html: `<div style="background-color: ${badgeColor}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.5);"></div>`,
-              iconSize: [20, 20],
-              iconAnchor: [10, 10],
-            });
-
-            const marker = window.L.marker([lat, lng], { icon: customIcon })
-              .addTo(leafletMapRef.current)
-              .bindPopup(`
-                <div style="font-family: sans-serif; padding: 2px;">
-                  <span style="font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 8px; color: white; background-color: ${badgeColor};">
-                    ${r.status || 'Pending'}
-                  </span>
-                  <p style="font-weight: bold; font-size: 13px; margin: 6px 0 2px 0;">${r.wasteType}: ${r.description}</p>
-                  <p style="font-size: 11px; color: #666; margin: 0;">📍 ${r.locationName || 'Barangay Area'}</p>
-                </div>
-              `);
-
-            markersRef.current.push(marker);
-
-            if (selectedMapReportId && r._id === selectedMapReportId) {
-              marker.openPopup();
-            }
-          }
-        });
-
-        if (mapBounds.length > 0) {
-          const bounds = window.L.latLngBounds(mapBounds);
-          leafletMapRef.current.fitBounds(bounds, { padding: [40, 40] });
-        }
-      }
-    }
-  }, [activeTab, reports, selectedMapReportId, currentGps, mapType]);
-
-  const handleFocusOnMap = (reportId) => {
-    setSelectedMapReportId(reportId);
-    setActiveTab('map');
-  };
-
   // Auth Handlers
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
@@ -399,27 +227,10 @@ export default function App() {
       return;
     }
 
-    let reportLat = newReport.lat;
-    let reportLng = newReport.lng;
-
-    if (!reportLat || !reportLng) {
-      const geocoded = await geocodeTypedLocation(
-        newReport.locationName,
-        user?.barangay || 'Maasin'
-      );
-      if (geocoded) {
-        reportLat = geocoded.lat;
-        reportLng = geocoded.lng;
-      } else {
-        reportLat = currentGps.lat;
-        reportLng = currentGps.lng;
-      }
-    }
-
     const reportPayload = {
       ...newReport,
-      lat: reportLat,
-      lng: reportLng,
+      lat: newReport.lat || currentGps.lat,
+      lng: newReport.lng || currentGps.lng,
       barangay: user?.barangay || 'Barangay Central',
       userName: user?.name || 'Anonymous Resident',
     };
@@ -524,7 +335,7 @@ export default function App() {
               <button onClick={() => setPublicView('public')} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xs font-bold bg-gray-100 px-2.5 py-1 rounded-full">✕ Back</button>
               <h2 className="text-2xl font-black text-emerald-800 text-center mb-1">{publicView === 'login' ? 'Sign In' : 'Register'}</h2>
               <p className="text-xs text-gray-500 text-center mb-6">Access your local barangay portal</p>
-              
+
               <form onSubmit={handleAuthSubmit} className="space-y-4">
                 {publicView === 'register' && (
                   <div>
@@ -564,7 +375,7 @@ export default function App() {
           <main className="flex-grow">
             <section className="bg-emerald-800 text-white py-16 px-6 text-center">
               <h2 className="text-4xl font-black mb-3">Smarter Segregation, Cleaner Barangays</h2>
-              <p className="text-emerald-100 max-w-xl mx-auto text-sm">Report uncollected waste, track garbage routes, and classify items into Malata or Dili Malata using AI.</p>
+              <p className="text-emerald-100 max-w-xl mx-auto text-sm">Report uncollected waste, manage collection routes, and classify items into Malata or Dili Malata using AI.</p>
             </section>
             <section className="max-w-7xl mx-auto px-6 -mt-8">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -580,7 +391,7 @@ export default function App() {
     );
   }
 
-  // Authenticated Dashboard
+  // Authenticated Portal Dashboard
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col font-sans">
       {toast && (
@@ -641,17 +452,6 @@ export default function App() {
             }`}
           >
             📋 Barangay Feed ({safeReports.length})
-          </button>
-
-          <button
-            onClick={() => setActiveTab('map')}
-            className={`py-4 border-b-2 transition ${
-              activeTab === 'map'
-                ? 'border-emerald-600 text-emerald-800'
-                : 'border-transparent text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            🗺️ Live Barangay Map
           </button>
 
           <button
@@ -733,11 +533,11 @@ export default function App() {
                           {report.wasteType || 'General Waste'}
                         </span>
                         <h4 className="font-extrabold text-base text-gray-900 mt-2">{report.description}</h4>
-                        <p className="text-xs text-gray-500">📍 {report.locationName || 'Unspecified Zone'}</p>
+                        <p className="text-xs text-gray-500 mt-1">📍 Location / Barangay: <span className="font-semibold text-gray-700">{report.locationName || 'Unspecified Zone'}</span></p>
                       </div>
 
                       <span className={`text-xs font-bold px-3 py-1 rounded-xl ${
-                        report.status === 'Collected' ? 'bg-blue-100 text-blue-800' :
+                        report.status === 'Collected' ? 'bg-emerald-100 text-emerald-800' :
                         report.status === 'In Progress' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
                       }`}>
                         {report.status || 'Pending'}
@@ -749,12 +549,9 @@ export default function App() {
                     )}
 
                     <div className="pt-2 border-t flex items-center justify-between gap-2">
-                      <button
-                        onClick={() => handleFocusOnMap(report._id)}
-                        className="text-xs font-bold text-emerald-800 hover:text-emerald-950 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-xl border border-emerald-200 transition"
-                      >
-                        📍 Show on Map
-                      </button>
+                      <span className="text-xs text-gray-400 font-medium">
+                        Reported by: {report.userName || 'Resident'}
+                      </span>
 
                       {(user.role === 'Admin' || user.role === 'Collector') && (
                         <div className="flex gap-2">
@@ -780,75 +577,12 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: LIVE MAP VIEW */}
-        {activeTab === 'map' && (
-          <div className="bg-white p-6 rounded-3xl border shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div>
-                <h3 className="text-xl font-black text-gray-800">Live Barangay Waste Map</h3>
-                <p className="text-xs text-emerald-700 font-semibold">💡 Click anywhere on the map to manually select an exact pin point!</p>
-              </div>
-
-              {/* MAP TYPE SELECTOR */}
-              <div className="flex items-center space-x-3 bg-gray-50 p-2 rounded-2xl border">
-                <span className="text-xs font-black text-gray-700 ml-1">Map type:</span>
-                
-                <button
-                  type="button"
-                  onClick={() => setMapType('default')}
-                  className={`flex flex-col items-center p-1.5 rounded-xl border-2 transition ${
-                    mapType === 'default'
-                      ? 'border-emerald-600 bg-white shadow-sm'
-                      : 'border-transparent opacity-70 hover:opacity-100'
-                  }`}
-                >
-                  <div className="w-10 h-10 rounded-lg bg-emerald-100 border border-emerald-300 flex items-center justify-center text-lg">
-                    🗺️
-                  </div>
-                  <span className={`text-[10px] font-bold mt-1 ${mapType === 'default' ? 'text-emerald-800' : 'text-gray-600'}`}>
-                    Default
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setMapType('satellite')}
-                  className={`flex flex-col items-center p-1.5 rounded-xl border-2 transition ${
-                    mapType === 'satellite'
-                      ? 'border-emerald-600 bg-white shadow-sm'
-                      : 'border-transparent opacity-70 hover:opacity-100'
-                  }`}
-                >
-                  <div className="w-10 h-10 rounded-lg bg-slate-800 border border-slate-600 flex items-center justify-center text-lg text-white">
-                    🛰️
-                  </div>
-                  <span className={`text-[10px] font-bold mt-1 ${mapType === 'satellite' ? 'text-emerald-800' : 'text-gray-600'}`}>
-                    Satellite
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            {/* Status Legend */}
-            <div className="flex items-center justify-end space-x-4 text-xs font-bold bg-gray-50 px-4 py-2 rounded-xl border">
-              <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-blue-600 inline-block shadow"></span><span>You</span></span>
-              <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-purple-600 inline-block shadow"></span><span>Selected Pin</span></span>
-              <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-red-500 inline-block"></span><span>Pending</span></span>
-              <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-amber-500 inline-block"></span><span>In Progress</span></span>
-              <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span><span>Collected</span></span>
-            </div>
-
-            {/* Leaflet Canvas */}
-            <div ref={mapContainerRef} className="w-full h-96 rounded-2xl border shadow-inner z-10 cursor-crosshair"></div>
-          </div>
-        )}
-
-        {/* TAB 3: CREATE WASTE REPORT */}
+        {/* TAB 2: CREATE WASTE REPORT */}
         {activeTab === 'new-report' && (
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div>
               <h3 className="text-xl font-black text-gray-800">Submit Waste Report</h3>
-              <p className="text-xs text-gray-500">Use high-precision GPS or tap on the map to pin your exact location</p>
+              <p className="text-xs text-gray-500">Provide the details and barangay location of the uncollected waste</p>
             </div>
 
             <form onSubmit={handleCreateReport} className="space-y-4">
@@ -857,7 +591,7 @@ export default function App() {
                 <textarea
                   required
                   rows={3}
-                  placeholder="Describe the uncollected waste"
+                  placeholder="Describe the uncollected waste (e.g., 2 bags of plastic bottles near the store)"
                   className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                   value={newReport.description}
                   onChange={(e) => setNewReport({ ...newReport, description: e.target.value })}
@@ -885,30 +619,21 @@ export default function App() {
                     placeholder="e.g. Abgao, Lib-og, Combado, Tunga-tunga"
                     className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                     value={newReport.locationName}
-                    onChange={(e) => setNewReport({ ...newReport, locationName: e.target.value, lat: null, lng: null })}
+                    onChange={(e) => setNewReport({ ...newReport, locationName: e.target.value })}
                   />
                 </div>
               </div>
 
-              {/* High Accuracy Hardware GPS Button */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
                 <button
                   type="button"
                   onClick={handleGetGpsLocation}
-                  className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs py-2.5 rounded-xl transition flex items-center justify-center space-x-1.5"
+                  className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs py-2.5 rounded-xl transition flex items-center justify-center space-x-1.5"
                 >
-                  <span>📡 Precise Hardware GPS Location</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('map')}
-                  className="bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 font-bold text-xs py-2.5 rounded-xl transition flex items-center justify-center space-x-1.5"
-                >
-                  <span>📌 Tap Location Directly on Map</span>
+                  <span>📡 Attach Current Device GPS Location</span>
                 </button>
               </div>
 
-              {/* File Uploader */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Upload Photo (Optional)</label>
                 <input
@@ -941,7 +666,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 4: GEMINI AI CLASSIFIER */}
+        {/* TAB 3: GEMINI AI CLASSIFIER */}
         {activeTab === 'ai' && (
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div className="text-center space-y-1">
