@@ -229,6 +229,13 @@ export default function App() {
   // --- CREATE (C) ---
   const handleCreateReport = async (e) => {
     e.preventDefault();
+
+    // Guard: Collectors cannot submit waste reports
+    if (user?.role === 'Collector') {
+      showToast('Garbage Collectors are not permitted to submit waste reports.', 'warning');
+      return;
+    }
+
     if (!newReport.description) {
       showToast('Please provide a waste description.', 'warning');
       return;
@@ -463,7 +470,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Navigation Tabs */}
+      {/* Navigation Tabs Bar */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 flex space-x-6 text-sm font-bold">
           <button
@@ -477,16 +484,19 @@ export default function App() {
             📋 Barangay Feed ({safeReports.length})
           </button>
 
-          <button
-            onClick={() => setActiveTab('new-report')}
-            className={`py-4 border-b-2 transition ${
-              activeTab === 'new-report'
-                ? 'border-emerald-600 text-emerald-800'
-                : 'border-transparent text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            ➕ Report Uncollected Waste
-          </button>
+          {/* TAB VISIBILITY: Only Residents and Admins see "Report Uncollected Waste" */}
+          {(user.role === 'Resident' || user.role === 'Admin') && (
+            <button
+              onClick={() => setActiveTab('new-report')}
+              className={`py-4 border-b-2 transition ${
+                activeTab === 'new-report'
+                  ? 'border-emerald-600 text-emerald-800'
+                  : 'border-transparent text-gray-500 hover:text-gray-800'
+              }`}
+            >
+              ➕ Report Uncollected Waste
+            </button>
+          )}
 
           <button
             onClick={() => setActiveTab('ai')}
@@ -611,8 +621,8 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: CREATE WASTE REPORT (CREATE) */}
-        {activeTab === 'new-report' && (
+        {/* TAB 2: CREATE WASTE REPORT (Only rendered for Residents and Admins) */}
+        {activeTab === 'new-report' && (user.role === 'Resident' || user.role === 'Admin') && (
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div>
               <h3 className="text-xl font-black text-gray-800">Submit Waste Report</h3>
