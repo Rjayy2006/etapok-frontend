@@ -30,8 +30,8 @@ export default function App() {
     barangay: 'Barangay Central',
   });
 
-  // User Current Geolocation State
-  const [currentGps, setCurrentGps] = useState({ lat: 10.3157, lng: 123.8854 });
+  // User Current Geolocation State (Defaulting to Maasin City area)
+  const [currentGps, setCurrentGps] = useState({ lat: 10.1336, lng: 124.8415 });
 
   // Data & App Navigation State
   const [reports, setReports] = useState([]);
@@ -50,9 +50,9 @@ export default function App() {
   const [newReport, setNewReport] = useState({
     description: '',
     wasteType: 'Malata',
-    locationName: 'Main Street Corner, Zone 2',
-    lat: 10.3157,
-    lng: 123.8854,
+    locationName: 'Lib-og',
+    lat: null,
+    lng: null,
     imageUrl: '',
   });
 
@@ -86,12 +86,6 @@ export default function App() {
           const lat = position.coords.latitude;
           const lng = position.coords.longitude;
           setCurrentGps({ lat, lng });
-          setNewReport((prev) => ({
-            ...prev,
-            lat,
-            lng,
-            locationName: `Municipal Zone (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
-          }));
         },
         (err) => {
           console.warn('Geolocation access denied or unavailable:', err.message);
@@ -99,6 +93,27 @@ export default function App() {
       );
     }
   }, []);
+
+  // OpenStreetMap Nominatim Geocoder Helper
+  const geocodeTypedLocation = async (locationName, barangayName) => {
+    try {
+      const searchQuery = `${locationName}, ${barangayName}, Maasin City, Southern Leyte, Philippines`;
+      const res = await axios.get(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+          searchQuery
+        )}`
+      );
+      if (res.data && res.data.length > 0) {
+        return {
+          lat: parseFloat(res.data[0].lat),
+          lng: parseFloat(res.data[0].lon),
+        };
+      }
+    } catch (err) {
+      console.warn('Geocoding fallback activated:', err);
+    }
+    return null;
+  };
 
   // Manual GPS Button Handler
   const handleGetGpsLocation = () => {
@@ -114,7 +129,7 @@ export default function App() {
             lng,
             locationName: prev.locationName || `GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
           }));
-          showToast('📍 Precise municipality GPS location captured!', 'success');
+          showToast('📍 Precise GPS location captured!', 'success');
         },
         () => {
           showToast('Could not fetch GPS location. Please enable location permissions.', 'warning');
@@ -220,11 +235,10 @@ export default function App() {
     }
   }, [isOnline, syncOfflineReports]);
 
-  // Leaflet Map Setup with Current Location & Municipality Focus
+  // Leaflet Map Rendering
   useEffect(() => {
     if (activeTab === 'map' && mapContainerRef.current) {
       if (!leafletMapRef.current && window.L) {
-        // Initialize centered at current live GPS coordinates
         const map = window.L.map(mapContainerRef.current).setView([currentGps.lat, currentGps.lng], 14);
         window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           attribution: '© OpenStreetMap contributors',
@@ -234,7 +248,6 @@ export default function App() {
       }
 
       if (leafletMapRef.current && window.L) {
-        // Clear previous report markers
         markersRef.current.forEach((m) => m.remove());
         markersRef.current = [];
 
@@ -242,34 +255,35 @@ export default function App() {
           userMarkerRef.current.remove();
         }
 
-        // Add Pulsating Blue Pin for User's Live Position
+        // Live Device Position Blue Pin
         const userIcon = window.L.divIcon({
           className: 'user-gps-pin',
-          html: `<div style="background-color: #2563EB; width: 22px; height: 22px; border-radius: 50%; border: 3.5px solid white; box-shadow: 0 0 12px rgba(37,99,235,0.8); animation: pulse 2s infinite;"></div>`,
-          iconSize: [22, 22],
-          iconAnchor: [11, 11],
+          html: `<div style="background-color: #2563EB; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(37,99,235,0.8);"></div>`,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10],
         });
 
         userMarkerRef.current = window.L.marker([currentGps.lat, currentGps.lng], { icon: userIcon })
           .addTo(leafletMapRef.current)
-          .bindPopup('<b>📍 Your Current Location</b><br>Municipal Zone Center');
+          .bindPopup('<b>📍 Your Current Location</b>');
 
         const safeArr = Array.isArray(reports) ? reports : [];
         const mapBounds = [[currentGps.lat, currentGps.lng]];
 
-        safeArr.forEach((r, idx) => {
+        safeArr.forEach((r) => {
           if (r) {
-            const lat = r.lat || currentGps.lat + (idx * 0.003 - 0.006);
-            const lng = r.lng || currentGps.lng + (idx * 0.003 - 0.006);
+            const lat = r.lat || currentGps.lat;
+            const lng = r.lng || currentGps.lng;
             mapBounds.push([lat, lng]);
 
+            // Accurate Status Colors: Red = Pending, Amber = In Progress, Green = Collected
             const badgeColor = r.status === 'Collected' ? '#10B981' : r.status === 'In Progress' ? '#F59E0B' : '#EF4444';
             
             const customIcon = window.L.divIcon({
               className: 'custom-pin',
-              html: `<div style="background-color: ${badgeColor}; width: 18px; height: 18px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.4);"></div>`,
-              iconSize: [18, 18],
-              iconAnchor: [9, 9],
+              html: `<div style="background-color: ${badgeColor}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.4);"></div>`,
+              iconSize: [20, 20],
+              iconAnchor: [10, 10],
             });
 
             const marker = window.L.marker([lat, lng], { icon: customIcon })
@@ -280,7 +294,7 @@ export default function App() {
                     ${r.status || 'Pending'}
                   </span>
                   <p style="font-weight: bold; font-size: 13px; margin: 6px 0 2px 0;">${r.wasteType}: ${r.description}</p>
-                  <p style="font-size: 11px; color: #666; margin: 0;">📍 ${r.locationName || 'Zone Area'}</p>
+                  <p style="font-size: 11px; color: #666; margin: 0;">📍 ${r.locationName || 'Barangay Area'}</p>
                 </div>
               `);
 
@@ -292,10 +306,9 @@ export default function App() {
           }
         });
 
-        // Fit map bounds to encompass your location and nearby reports
         if (mapBounds.length > 0) {
           const bounds = window.L.latLngBounds(mapBounds);
-          leafletMapRef.current.fitBounds(bounds, { padding: [50, 50] });
+          leafletMapRef.current.fitBounds(bounds, { padding: [40, 40] });
         }
       }
     }
@@ -335,7 +348,7 @@ export default function App() {
     showToast('Signed out successfully.', 'info');
   };
 
-  // Create Report Handler
+  // Create Report Handler with Auto-Geocoding
   const handleCreateReport = async (e) => {
     e.preventDefault();
     if (!newReport.description) {
@@ -343,8 +356,28 @@ export default function App() {
       return;
     }
 
+    let reportLat = newReport.lat;
+    let reportLng = newReport.lng;
+
+    // Auto-Geocode typed location if GPS button wasn't explicitly clicked
+    if (!reportLat || !reportLng) {
+      const geocoded = await geocodeTypedLocation(
+        newReport.locationName,
+        user?.barangay || 'Maasin'
+      );
+      if (geocoded) {
+        reportLat = geocoded.lat;
+        reportLng = geocoded.lng;
+      } else {
+        reportLat = currentGps.lat;
+        reportLng = currentGps.lng;
+      }
+    }
+
     const reportPayload = {
       ...newReport,
+      lat: reportLat,
+      lng: reportLng,
       barangay: user?.barangay || 'Barangay Central',
       userName: user?.name || 'Anonymous Resident',
     };
@@ -352,7 +385,7 @@ export default function App() {
     if (!isOnline) {
       await saveReportOffline(reportPayload);
       showToast('Saved offline. Will automatically sync when reconnected!', 'info');
-      setNewReport({ description: '', wasteType: 'Malata', locationName: 'Main Street Corner, Zone 2', lat: currentGps.lat, lng: currentGps.lng, imageUrl: '' });
+      setNewReport({ description: '', wasteType: 'Malata', locationName: 'Lib-og', lat: null, lng: null, imageUrl: '' });
       return;
     }
 
@@ -361,7 +394,7 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` },
       });
       showToast('Waste report submitted successfully!', 'success');
-      setNewReport({ description: '', wasteType: 'Malata', locationName: 'Main Street Corner, Zone 2', lat: currentGps.lat, lng: currentGps.lng, imageUrl: '' });
+      setNewReport({ description: '', wasteType: 'Malata', locationName: 'Lib-og', lat: null, lng: null, imageUrl: '' });
       setActiveTab('reports');
       fetchReports();
     } catch (err) {
@@ -554,7 +587,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Tabs Bar */}
+      {/* Navigation Tabs */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 flex space-x-6 text-sm font-bold">
           <button
@@ -711,10 +744,10 @@ export default function App() {
             <div className="flex justify-between items-center">
               <div>
                 <h3 className="text-xl font-black text-gray-800">Live Barangay Waste Map</h3>
-                <p className="text-xs text-gray-500">Real-time GPS map centered on your local municipality</p>
+                <p className="text-xs text-gray-500">Real-time status pins automatically geocoded to typed barangays</p>
               </div>
 
-              {/* Map Legend */}
+              {/* Status Legend */}
               <div className="flex items-center space-x-4 text-xs font-bold bg-gray-50 px-4 py-2 rounded-xl border">
                 <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-blue-600 inline-block shadow"></span><span>You</span></span>
                 <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-red-500 inline-block"></span><span>Pending</span></span>
@@ -732,7 +765,7 @@ export default function App() {
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div>
               <h3 className="text-xl font-black text-gray-800">Submit Waste Report</h3>
-              <p className="text-xs text-gray-500">Notify municipal garbage collection trucks in real-time</p>
+              <p className="text-xs text-gray-500">Type your barangay or street name to pin it on the municipal map</p>
             </div>
 
             <form onSubmit={handleCreateReport} className="space-y-4">
@@ -762,25 +795,26 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Location / Zone</label>
+                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Location / Barangay Name</label>
                   <input
                     type="text"
                     required
+                    placeholder="e.g. Abgao, Lib-og, Combado, Tunga-tunga"
                     className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                     value={newReport.locationName}
-                    onChange={(e) => setNewReport({ ...newReport, locationName: e.target.value })}
+                    onChange={(e) => setNewReport({ ...newReport, locationName: e.target.value, lat: null, lng: null })}
                   />
                 </div>
               </div>
 
-              {/* GPS Auto Location Pin */}
+              {/* GPS Location Pin Option */}
               <div>
                 <button
                   type="button"
                   onClick={handleGetGpsLocation}
                   className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs py-2.5 rounded-xl transition flex items-center justify-center space-x-2"
                 >
-                  <span>📍 Pin Current Municipality GPS Location</span>
+                  <span>📍 Or Click to Pin Precise Device GPS Coordinates</span>
                 </button>
               </div>
 
