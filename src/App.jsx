@@ -34,6 +34,7 @@ export default function App() {
   const [reports, setReports] = useState([]);
   const [activeTab, setActiveTab] = useState('reports');
   const [filterWasteType, setFilterWasteType] = useState('All');
+  const [selectedMapReportId, setSelectedMapReportId] = useState(null);
   const [toast, setToast] = useState(null);
 
   // AI Classification State
@@ -47,19 +48,22 @@ export default function App() {
     description: '',
     wasteType: 'Malata',
     locationName: 'Main Street Corner, Zone 2',
+    lat: 10.3157,
+    lng: 123.8854,
     imageUrl: '',
   });
 
   const socketRef = useRef(null);
   const mapContainerRef = useRef(null);
   const leafletMapRef = useRef(null);
+  const markersRef = useRef([]);
 
   const showToast = (message, type = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Load Leaflet Map CSS Dynamically
+  // Dynamically Load Leaflet CSS
   useEffect(() => {
     if (!document.getElementById('leaflet-css')) {
       const link = document.createElement('link');
@@ -70,7 +74,29 @@ export default function App() {
     }
   }, []);
 
-  // File Readers for Base64 Uploads
+  // GPS Coordinate Capture
+  const handleGetGpsLocation = () => {
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setNewReport((prev) => ({
+            ...prev,
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            locationName: prev.locationName || `GPS (${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)})`,
+          }));
+          showToast('📍 Precise GPS location captured!', 'success');
+        },
+        (err) => {
+          showToast('Could not fetch GPS location. Using default zone coordinates.', 'warning');
+        }
+      );
+    } else {
+      showToast('Geolocation is not supported by your browser.', 'error');
+    }
+  };
+
+  // File Upload Handlers
   const handleReportFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -93,7 +119,7 @@ export default function App() {
     }
   };
 
-  // Fetch Reports from Backend
+  // Fetch Reports
   const fetchReports = useCallback(async () => {
     try {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -112,7 +138,7 @@ export default function App() {
     }
   }, [token]);
 
-  // Offline Auto-Sync Logic
+  // Offline Sync
   const syncOfflineReports = useCallback(async () => {
     if (!isOnline || !token) return;
     try {
@@ -165,7 +191,7 @@ export default function App() {
     }
   }, [isOnline, syncOfflineReports]);
 
-  // Leaflet Interactive Map Initialization
+  // Leaflet Map Initialization & Custom Markers
   useEffect(() => {
     if (activeTab === 'map' && mapContainerRef.current) {
       if (!leafletMapRef.current && window.L) {
@@ -177,21 +203,64 @@ export default function App() {
         leafletMapRef.current = map;
       }
 
-      // Add report markers
       if (leafletMapRef.current && window.L) {
+        // Clear previous markers
+        markersRef.current.forEach((m) => m.remove());
+        markersRef.current = [];
+
         const safeArr = Array.isArray(reports) ? reports : [];
+        const mapBounds = [];
+
         safeArr.forEach((r, idx) => {
           if (r) {
-            const lat = 10.3157 + (idx * 0.005 - 0.01);
-            const lng = 123.8854 + (idx * 0.005 - 0.01);
-            window.L.marker([lat, lng])
+            const lat = r.lat || 10.3157 + (idx * 0.005 - 0.01);
+            const lng = r.lng || 123.8854 + (idx * 0.005 - 0.01);
+            mapBounds.push([lat, lng]);
+
+            // Marker Colors based on Status
+            const badgeColor = r.status === 'Collected' ? '#10B981' : r.status === 'In Progress' ? '#F59E0B' : '#EF4444';
+            
+            const customIcon = window.L.divIcon({
+              className: 'custom-pin',
+              html: `<div style="background-color: ${badgeColor}; width: 18px; height: 18px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.4);"></div>`,
+              iconSize: [18, 18],
+              iconAnchor: [9, 9],
+            });
+
+            const marker = window.L.marker([lat, lng], { icon: customIcon })
               .addTo(leafletMapRef.current)
-              .bindPopup(`<b>${r.wasteType || 'Waste'}</b><br>${r.description || ''}<br>📍 ${r.locationName || ''}`);
+              .bindPopup(`
+                <div style="font-family: sans-serif; padding: 2px;">
+                  <span style="font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 8px; color: white; background-color: ${badgeColor};">
+                    ${r.status || 'Pending'}
+                  </span>
+                  <p style="font-weight: bold; font-size: 13px; margin: 6px 0 2px 0;">${r.wasteType}: ${r.description}</p>
+                  <p style="font-size: 11px; color: #666; margin: 0;">📍 ${r.locationName || 'Zone Area'}</p>
+                </div>
+              `);
+
+            markersRef.current.push(marker);
+
+            // Open popup if focused from feed
+            if (selectedMapReportId && r._id === selectedMapReportId) {
+              marker.openPopup();
+            }
           }
         });
+
+        // Auto-fit camera bounds to display all pins
+        if (mapBounds.length > 0) {
+          const bounds = window.L.latLngBounds(mapBounds);
+          leafletMapRef.current.fitBounds(bounds, { padding: [40, 40] });
+        }
       }
     }
-  }, [activeTab, reports]);
+  }, [activeTab, reports, selectedMapReportId]);
+
+  const handleFocusOnMap = (reportId) => {
+    setSelectedMapReportId(reportId);
+    setActiveTab('map');
+  };
 
   // Auth Handlers
   const handleAuthSubmit = async (e) => {
@@ -222,7 +291,7 @@ export default function App() {
     showToast('Signed out successfully.', 'info');
   };
 
-  // Report Creation & Status Management
+  // Create Report Handler
   const handleCreateReport = async (e) => {
     e.preventDefault();
     if (!newReport.description) {
@@ -239,7 +308,7 @@ export default function App() {
     if (!isOnline) {
       await saveReportOffline(reportPayload);
       showToast('Saved offline. Will automatically sync when reconnected!', 'info');
-      setNewReport({ description: '', wasteType: 'Malata', locationName: 'Main Street Corner, Zone 2', imageUrl: '' });
+      setNewReport({ description: '', wasteType: 'Malata', locationName: 'Main Street Corner, Zone 2', lat: 10.3157, lng: 123.8854, imageUrl: '' });
       return;
     }
 
@@ -248,7 +317,7 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` },
       });
       showToast('Waste report submitted successfully!', 'success');
-      setNewReport({ description: '', wasteType: 'Malata', locationName: 'Main Street Corner, Zone 2', imageUrl: '' });
+      setNewReport({ description: '', wasteType: 'Malata', locationName: 'Main Street Corner, Zone 2', lat: 10.3157, lng: 123.8854, imageUrl: '' });
       setActiveTab('reports');
       fetchReports();
     } catch (err) {
@@ -270,7 +339,7 @@ export default function App() {
     }
   };
 
-  // AI Classification Handler
+  // AI Classifier Handler
   const handleAiClassify = async (e) => {
     e.preventDefault();
     if (!aiDesc && !aiImage) {
@@ -310,7 +379,7 @@ export default function App() {
     return r && r.wasteType === filterWasteType;
   });
 
-  // Public View
+  // Public Unauthenticated Dashboard
   if (!token || !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
@@ -392,7 +461,7 @@ export default function App() {
     );
   }
 
-  // Authenticated Portal
+  // Authenticated Dashboard
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col font-sans">
       {toast && (
@@ -441,7 +510,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Navigation Tabs (Including Restored Live Map) */}
+      {/* Tabs Bar */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 flex space-x-6 text-sm font-bold">
           <button
@@ -550,7 +619,7 @@ export default function App() {
 
                       <span className={`text-xs font-bold px-3 py-1 rounded-xl ${
                         report.status === 'Collected' ? 'bg-blue-100 text-blue-800' :
-                        report.status === 'In Progress' ? 'bg-amber-100 text-amber-800' : 'bg-orange-100 text-orange-800'
+                        report.status === 'In Progress' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
                       }`}>
                         {report.status || 'Pending'}
                       </span>
@@ -560,22 +629,31 @@ export default function App() {
                       <img src={report.imageUrl} alt="Report Waste" className="w-full h-48 object-cover rounded-xl border" />
                     )}
 
-                    {(user.role === 'Admin' || user.role === 'Collector') && (
-                      <div className="pt-2 border-t flex gap-2">
-                        <button
-                          onClick={() => handleStatusUpdate(report._id, 'In Progress')}
-                          className="flex-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs py-2 rounded-xl transition"
-                        >
-                          Mark In Progress
-                        </button>
-                        <button
-                          onClick={() => handleStatusUpdate(report._id, 'Collected')}
-                          className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 rounded-xl transition"
-                        >
-                          Mark Collected
-                        </button>
-                      </div>
-                    )}
+                    <div className="pt-2 border-t flex items-center justify-between gap-2">
+                      <button
+                        onClick={() => handleFocusOnMap(report._id)}
+                        className="text-xs font-bold text-emerald-800 hover:text-emerald-950 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-xl border border-emerald-200 transition"
+                      >
+                        📍 Show on Map
+                      </button>
+
+                      {(user.role === 'Admin' || user.role === 'Collector') && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleStatusUpdate(report._id, 'In Progress')}
+                            className="bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs px-3 py-2 rounded-xl transition"
+                          >
+                            In Progress
+                          </button>
+                          <button
+                            onClick={() => handleStatusUpdate(report._id, 'Collected')}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-2 rounded-xl transition"
+                          >
+                            Collected
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -586,10 +664,20 @@ export default function App() {
         {/* TAB 2: LIVE MAP VIEW */}
         {activeTab === 'map' && (
           <div className="bg-white p-6 rounded-3xl border shadow-sm space-y-4">
-            <div>
-              <h3 className="text-xl font-black text-gray-800">Live Barangay Waste Map</h3>
-              <p className="text-xs text-gray-500">Real-time OpenStreetMap locations for pending and collected waste reports</p>
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-black text-gray-800">Live Barangay Waste Map</h3>
+                <p className="text-xs text-gray-500">Real-time GPS pins for pending, in-progress, and collected waste reports</p>
+              </div>
+
+              {/* Status Legend */}
+              <div className="flex items-center space-x-4 text-xs font-bold bg-gray-50 px-4 py-2 rounded-xl border">
+                <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-red-500 inline-block"></span><span>Pending</span></span>
+                <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-amber-500 inline-block"></span><span>In Progress</span></span>
+                <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span><span>Collected</span></span>
+              </div>
             </div>
+
             <div ref={mapContainerRef} className="w-full h-96 rounded-2xl border shadow-inner z-10"></div>
           </div>
         )}
@@ -640,6 +728,18 @@ export default function App() {
                 </div>
               </div>
 
+              {/* GPS Auto Location Pin */}
+              <div>
+                <button
+                  type="button"
+                  onClick={handleGetGpsLocation}
+                  className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs py-2.5 rounded-xl transition flex items-center justify-center space-x-2"
+                >
+                  <span>📍 Click to Pin Current GPS Location</span>
+                </button>
+              </div>
+
+              {/* File Uploader */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Upload Photo (Optional)</label>
                 <input
