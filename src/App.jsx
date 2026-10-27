@@ -51,15 +51,26 @@ export default function App() {
   });
 
   const socketRef = useRef(null);
+  const mapContainerRef = useRef(null);
+  const leafletMapRef = useRef(null);
 
   const showToast = (message, type = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
 
-  // ---------------------------------------------------------------------------
-  // FILE READERS (IMAGE UPLOAD HANDLERS)
-  // ---------------------------------------------------------------------------
+  // Load Leaflet Map CSS Dynamically
+  useEffect(() => {
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link');
+      link.id = 'leaflet-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+  }, []);
+
+  // File Readers for Base64 Uploads
   const handleReportFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -82,9 +93,7 @@ export default function App() {
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // FETCH REPORTS & WEBSOCKET SYNC
-  // ---------------------------------------------------------------------------
+  // Fetch Reports from Backend
   const fetchReports = useCallback(async () => {
     try {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -156,9 +165,35 @@ export default function App() {
     }
   }, [isOnline, syncOfflineReports]);
 
-  // ---------------------------------------------------------------------------
-  // AUTHENTICATION HANDLERS
-  // ---------------------------------------------------------------------------
+  // Leaflet Interactive Map Initialization
+  useEffect(() => {
+    if (activeTab === 'map' && mapContainerRef.current) {
+      if (!leafletMapRef.current && window.L) {
+        const map = window.L.map(mapContainerRef.current).setView([10.3157, 123.8854], 13);
+        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap contributors',
+        }).addTo(map);
+
+        leafletMapRef.current = map;
+      }
+
+      // Add report markers
+      if (leafletMapRef.current && window.L) {
+        const safeArr = Array.isArray(reports) ? reports : [];
+        safeArr.forEach((r, idx) => {
+          if (r) {
+            const lat = 10.3157 + (idx * 0.005 - 0.01);
+            const lng = 123.8854 + (idx * 0.005 - 0.01);
+            window.L.marker([lat, lng])
+              .addTo(leafletMapRef.current)
+              .bindPopup(`<b>${r.wasteType || 'Waste'}</b><br>${r.description || ''}<br>📍 ${r.locationName || ''}`);
+          }
+        });
+      }
+    }
+  }, [activeTab, reports]);
+
+  // Auth Handlers
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     const endpoint = publicView === 'login' ? '/auth/login' : '/auth/register';
@@ -187,9 +222,7 @@ export default function App() {
     showToast('Signed out successfully.', 'info');
   };
 
-  // ---------------------------------------------------------------------------
-  // REPORT MANAGEMENT (SUBMIT & STATUS UPDATE)
-  // ---------------------------------------------------------------------------
+  // Report Creation & Status Management
   const handleCreateReport = async (e) => {
     e.preventDefault();
     if (!newReport.description) {
@@ -237,9 +270,7 @@ export default function App() {
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // AI VISION CLASSIFIER
-  // ---------------------------------------------------------------------------
+  // AI Classification Handler
   const handleAiClassify = async (e) => {
     e.preventDefault();
     if (!aiDesc && !aiImage) {
@@ -266,7 +297,7 @@ export default function App() {
     }
   };
 
-  // Metrics Calculations
+  // Metrics
   const safeReports = Array.isArray(reports) ? reports : [];
   const totalReports = safeReports.length;
   const malataCount = safeReports.filter((r) => r && r.wasteType === 'Malata').length;
@@ -279,9 +310,7 @@ export default function App() {
     return r && r.wasteType === filterWasteType;
   });
 
-  // ===========================================================================
-  // VIEW 1: PUBLIC LANDING DASHBOARD (WHEN NOT LOGGED IN)
-  // ===========================================================================
+  // Public View
   if (!token || !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
@@ -363,12 +392,9 @@ export default function App() {
     );
   }
 
-  // ===========================================================================
-  // VIEW 2: AUTHENTICATED USER PORTAL (RESIDENT / COLLECTOR / ADMIN)
-  // ===========================================================================
+  // Authenticated Portal
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col font-sans">
-      {/* Toast Notification */}
       {toast && (
         <div className={`fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg text-white font-bold text-sm ${
           toast.type === 'error' ? 'bg-red-600' : toast.type === 'success' ? 'bg-emerald-600' : 'bg-blue-600'
@@ -377,14 +403,12 @@ export default function App() {
         </div>
       )}
 
-      {/* Offline Status Warning Bar */}
       {!isOnline && (
         <div className="bg-amber-600 text-white text-center py-2 px-4 font-bold text-xs sticky top-0 z-50">
           ⚠️ Offline Mode Active — Reports will be stored locally until connection is restored.
         </div>
       )}
 
-      {/* Top Header */}
       <header className="bg-emerald-800 text-white shadow-md">
         <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
           <div className="flex items-center space-x-3">
@@ -417,7 +441,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Primary Navigation Tabs */}
+      {/* Navigation Tabs (Including Restored Live Map) */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 flex space-x-6 text-sm font-bold">
           <button
@@ -430,6 +454,18 @@ export default function App() {
           >
             📋 Barangay Feed ({safeReports.length})
           </button>
+
+          <button
+            onClick={() => setActiveTab('map')}
+            className={`py-4 border-b-2 transition ${
+              activeTab === 'map'
+                ? 'border-emerald-600 text-emerald-800'
+                : 'border-transparent text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            🗺️ Live Barangay Map
+          </button>
+
           <button
             onClick={() => setActiveTab('new-report')}
             className={`py-4 border-b-2 transition ${
@@ -440,6 +476,7 @@ export default function App() {
           >
             ➕ Report Uncollected Waste
           </button>
+
           <button
             onClick={() => setActiveTab('ai')}
             className={`py-4 border-b-2 transition ${
@@ -453,9 +490,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Main Content Area */}
       <main className="max-w-7xl mx-auto px-6 py-8 flex-grow w-full space-y-6">
-        {/* Quick Analytics Header */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-2xl border shadow-sm text-center">
             <span className="text-xs font-bold text-gray-400 uppercase">Total Reports</span>
@@ -525,7 +560,6 @@ export default function App() {
                       <img src={report.imageUrl} alt="Report Waste" className="w-full h-48 object-cover rounded-xl border" />
                     )}
 
-                    {/* Admin & Collector Status Controls */}
                     {(user.role === 'Admin' || user.role === 'Collector') && (
                       <div className="pt-2 border-t flex gap-2">
                         <button
@@ -549,7 +583,18 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: CREATE WASTE REPORT */}
+        {/* TAB 2: LIVE MAP VIEW */}
+        {activeTab === 'map' && (
+          <div className="bg-white p-6 rounded-3xl border shadow-sm space-y-4">
+            <div>
+              <h3 className="text-xl font-black text-gray-800">Live Barangay Waste Map</h3>
+              <p className="text-xs text-gray-500">Real-time OpenStreetMap locations for pending and collected waste reports</p>
+            </div>
+            <div ref={mapContainerRef} className="w-full h-96 rounded-2xl border shadow-inner z-10"></div>
+          </div>
+        )}
+
+        {/* TAB 3: CREATE WASTE REPORT */}
         {activeTab === 'new-report' && (
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div>
@@ -563,7 +608,7 @@ export default function App() {
                 <textarea
                   required
                   rows={3}
-                  placeholder="Describe the uncollected waste (e.g. 3 bags of yard trimmings and food leftovers)"
+                  placeholder="Describe the uncollected waste"
                   className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                   value={newReport.description}
                   onChange={(e) => setNewReport({ ...newReport, description: e.target.value })}
@@ -595,7 +640,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* IMAGE FILE UPLODER FOR REPORT */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Upload Photo (Optional)</label>
                 <input
@@ -605,7 +649,7 @@ export default function App() {
                   className="w-full border rounded-xl p-2.5 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-100 file:text-emerald-800 hover:file:bg-emerald-200 cursor-pointer"
                 />
                 {newReport.imageUrl && (
-                  <div className="mt-3 relative inline-block">
+                  <div className="mt-3 inline-block">
                     <img src={newReport.imageUrl} alt="Selected Preview" className="h-28 rounded-xl border object-cover shadow-sm" />
                     <button
                       type="button"
@@ -628,7 +672,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 3: GEMINI AI CLASSIFIER */}
+        {/* TAB 4: GEMINI AI CLASSIFIER */}
         {activeTab === 'ai' && (
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div className="text-center space-y-1">
@@ -649,7 +693,6 @@ export default function App() {
                 />
               </div>
 
-              {/* IMAGE FILE UPLOADER FOR AI CLASSIFIER */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Select / Upload Image File</label>
                 <input
