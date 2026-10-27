@@ -30,7 +30,7 @@ export default function App() {
     barangay: 'Barangay Central',
   });
 
-  // User Current Geolocation State (Used for attached GPS coordinates)
+  // User Current Geolocation State
   const [currentGps, setCurrentGps] = useState({ lat: 10.1336, lng: 124.8415 });
 
   // Data & App Navigation State
@@ -127,7 +127,7 @@ export default function App() {
     }
   };
 
-  // Fetch Reports
+  // --- READ (R) ---
   const fetchReports = useCallback(async () => {
     try {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -166,6 +166,7 @@ export default function App() {
     }
   }, [isOnline, token, fetchReports]);
 
+  // Socket Listener Setup for Live Realtime CRUD Updates
   useEffect(() => {
     fetchReports();
     socketRef.current = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
@@ -177,6 +178,12 @@ export default function App() {
     socketRef.current.on('report_updated', (updated) => {
       setReports((prev) =>
         Array.isArray(prev) ? prev.map((r) => (r._id === updated._id ? updated : r)) : []
+      );
+    });
+
+    socketRef.current.on('report_deleted', (deletedId) => {
+      setReports((prev) =>
+        Array.isArray(prev) ? prev.filter((r) => r._id !== deletedId) : []
       );
     });
 
@@ -219,7 +226,7 @@ export default function App() {
     showToast('Signed out successfully.', 'info');
   };
 
-  // Create Report Handler
+  // --- CREATE (C) ---
   const handleCreateReport = async (e) => {
     e.preventDefault();
     if (!newReport.description) {
@@ -255,6 +262,7 @@ export default function App() {
     }
   };
 
+  // --- UPDATE (U) ---
   const handleStatusUpdate = async (reportId, newStatus) => {
     try {
       await axios.put(
@@ -266,6 +274,21 @@ export default function App() {
       fetchReports();
     } catch (err) {
       showToast('Failed to update status.', 'error');
+    }
+  };
+
+  // --- DELETE (D) ---
+  const handleDeleteReport = async (reportId) => {
+    if (!window.confirm('Are you sure you want to delete this waste report?')) return;
+
+    try {
+      await axios.delete(`${API_BASE_URL}/reports/${reportId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      showToast('Report deleted successfully.', 'info');
+      fetchReports();
+    } catch (err) {
+      showToast('Failed to delete report.', 'error');
     }
   };
 
@@ -309,7 +332,7 @@ export default function App() {
     return r && r.wasteType === filterWasteType;
   });
 
-  // Public Dashboard
+  // Public View
   if (!token || !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
@@ -440,7 +463,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Tabs Bar */}
+      {/* Navigation Tabs */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 flex space-x-6 text-sm font-bold">
           <button
@@ -498,7 +521,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* TAB 1: REPORTS FEED */}
+        {/* TAB 1: REPORTS FEED (READ, UPDATE, DELETE) */}
         {activeTab === 'reports' && (
           <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -553,22 +576,33 @@ export default function App() {
                         Reported by: {report.userName || 'Resident'}
                       </span>
 
-                      {(user.role === 'Admin' || user.role === 'Collector') && (
-                        <div className="flex gap-2">
+                      <div className="flex gap-2">
+                        {(user.role === 'Admin' || user.role === 'Collector') && (
+                          <>
+                            <button
+                              onClick={() => handleStatusUpdate(report._id, 'In Progress')}
+                              className="bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs px-3 py-2 rounded-xl transition"
+                            >
+                              In Progress
+                            </button>
+                            <button
+                              onClick={() => handleStatusUpdate(report._id, 'Collected')}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-2 rounded-xl transition"
+                            >
+                              Collected
+                            </button>
+                          </>
+                        )}
+
+                        {(user.role === 'Admin' || user.name === report.userName) && (
                           <button
-                            onClick={() => handleStatusUpdate(report._id, 'In Progress')}
-                            className="bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs px-3 py-2 rounded-xl transition"
+                            onClick={() => handleDeleteReport(report._id)}
+                            className="bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs px-3 py-2 rounded-xl transition"
                           >
-                            In Progress
+                            🗑️ Delete
                           </button>
-                          <button
-                            onClick={() => handleStatusUpdate(report._id, 'Collected')}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-2 rounded-xl transition"
-                          >
-                            Collected
-                          </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -577,7 +611,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: CREATE WASTE REPORT */}
+        {/* TAB 2: CREATE WASTE REPORT (CREATE) */}
         {activeTab === 'new-report' && (
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div>
