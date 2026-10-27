@@ -30,7 +30,7 @@ export default function App() {
     barangay: 'Barangay Central',
   });
 
-  // User Current Geolocation State (Maasin City Area Default)
+  // User Current Geolocation State (Maasin City Default)
   const [currentGps, setCurrentGps] = useState({ lat: 10.1336, lng: 124.8415 });
 
   // Map View Type State ('default' | 'satellite')
@@ -65,6 +65,7 @@ export default function App() {
   const tileLayerRef = useRef(null);
   const markersRef = useRef([]);
   const userMarkerRef = useRef(null);
+  const tempPinRef = useRef(null);
 
   const showToast = (message, type = 'info') => {
     setToast({ message, type });
@@ -82,7 +83,7 @@ export default function App() {
     }
   }, []);
 
-  // Detect Live Device Geolocation
+  // Detect Live Device Geolocation with High Accuracy
   useEffect(() => {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -92,11 +93,39 @@ export default function App() {
           setCurrentGps({ lat, lng });
         },
         (err) => {
-          console.warn('Geolocation access denied or unavailable:', err.message);
-        }
+          console.warn('Geolocation access denied:', err.message);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     }
   }, []);
+
+  // High Accuracy GPS Button Handler
+  const handleGetGpsLocation = () => {
+    if ('geolocation' in navigator) {
+      showToast('Fetching precise GPS satellite signal...', 'info');
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          setCurrentGps({ lat, lng });
+          setNewReport((prev) => ({
+            ...prev,
+            lat,
+            lng,
+            locationName: prev.locationName || `Precise GPS (${lat.toFixed(5)}, ${lng.toFixed(5)})`,
+          }));
+          showToast('📍 High-Accuracy GPS Coordinates Captured!', 'success');
+        },
+        () => {
+          showToast('Could not fetch precise location. Please check browser GPS permissions.', 'warning');
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    } else {
+      showToast('Geolocation is not supported by your browser.', 'error');
+    }
+  };
 
   // Geocoding Helper
   const geocodeTypedLocation = async (locationName, barangayName) => {
@@ -114,34 +143,9 @@ export default function App() {
         };
       }
     } catch (err) {
-      console.warn('Geocoding fallback activated:', err);
+      console.warn('Geocoding fallback:', err);
     }
     return null;
-  };
-
-  // Manual GPS Button Handler
-  const handleGetGpsLocation = () => {
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const lat = position.coords.latitude;
-          const lng = position.coords.longitude;
-          setCurrentGps({ lat, lng });
-          setNewReport((prev) => ({
-            ...prev,
-            lat,
-            lng,
-            locationName: prev.locationName || `GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
-          }));
-          showToast('📍 Precise GPS location captured!', 'success');
-        },
-        () => {
-          showToast('Could not fetch GPS location. Enable location permissions.', 'warning');
-        }
-      );
-    } else {
-      showToast('Geolocation is not supported by your browser.', 'error');
-    }
   };
 
   // File Upload Handlers
@@ -172,14 +176,7 @@ export default function App() {
     try {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const res = await axios.get(`${API_BASE_URL}/reports`, { headers });
-      
-      if (Array.isArray(res.data)) {
-        setReports(res.data);
-      } else if (res.data && Array.isArray(res.data.reports)) {
-        setReports(res.data.reports);
-      } else {
-        setReports([]);
-      }
+      setReports(Array.isArray(res.data) ? res.data : res.data.reports || []);
     } catch (err) {
       console.error('Error fetching reports:', err);
       setReports([]);
@@ -215,7 +212,6 @@ export default function App() {
 
   useEffect(() => {
     fetchReports();
-
     socketRef.current = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
 
     socketRef.current.on('report_created', (data) => {
@@ -239,16 +235,45 @@ export default function App() {
     }
   }, [isOnline, syncOfflineReports]);
 
-  // Leaflet Map Initialization & Switchable Tile Layers with InvalidateSize Fix
+  // Leaflet Interactive Map Rendering & Click-to-Pin Location Selection
   useEffect(() => {
     if (activeTab === 'map' && mapContainerRef.current) {
       if (!leafletMapRef.current && window.L) {
-        const map = window.L.map(mapContainerRef.current).setView([currentGps.lat, currentGps.lng], 14);
+        const map = window.L.map(mapContainerRef.current).setView([currentGps.lat, currentGps.lng], 15);
+        
+        // CLICK ON MAP TO SET EXACT CUSTOM PIN
+        map.on('click', (e) => {
+          const { lat, lng } = e.latlng;
+          setNewReport((prev) => ({
+            ...prev,
+            lat,
+            lng,
+            locationName: `Selected Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+          }));
+
+          if (tempPinRef.current) {
+            tempPinRef.current.remove();
+          }
+
+          const pinIcon = window.L.divIcon({
+            className: 'temp-pin',
+            html: `<div style="background-color: #8B5CF6; width: 22px; height: 22px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(139,92,246,0.8);"></div>`,
+            iconSize: [22, 22],
+            iconAnchor: [11, 11],
+          });
+
+          tempPinRef.current = window.L.marker([lat, lng], { icon: pinIcon })
+            .addTo(map)
+            .bindPopup('<b>📌 Custom Picked Location</b><br>Will be used for new report submission')
+            .openPopup();
+
+          showToast('📌 Custom map pin location selected!', 'info');
+        });
+
         leafletMapRef.current = map;
       }
 
       if (leafletMapRef.current && window.L) {
-        // Force map size recalculation to prevent gray tiles
         setTimeout(() => {
           leafletMapRef.current.invalidateSize();
         }, 150);
@@ -257,22 +282,17 @@ export default function App() {
           tileLayerRef.current.remove();
         }
 
+        // Esri High-Resolution Street Map vs Esri Satellite Imagery
         const tileUrl =
           mapType === 'satellite'
             ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-            : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-
-        const tileAttribution =
-          mapType === 'satellite'
-            ? 'Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-            : '© OpenStreetMap contributors';
+            : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
 
         tileLayerRef.current = window.L.tileLayer(tileUrl, {
-          attribution: tileAttribution,
+          attribution: 'Tiles © Esri',
           maxZoom: 19,
         }).addTo(leafletMapRef.current);
 
-        // Clear markers
         markersRef.current.forEach((m) => m.remove());
         markersRef.current = [];
 
@@ -280,7 +300,7 @@ export default function App() {
           userMarkerRef.current.remove();
         }
 
-        // Device Location Marker
+        // User Live GPS Blue Marker
         const userIcon = window.L.divIcon({
           className: 'user-gps-pin',
           html: `<div style="background-color: #2563EB; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(37,99,235,0.8);"></div>`,
@@ -290,7 +310,7 @@ export default function App() {
 
         userMarkerRef.current = window.L.marker([currentGps.lat, currentGps.lng], { icon: userIcon })
           .addTo(leafletMapRef.current)
-          .bindPopup('<b>📍 Your Current Location</b>');
+          .bindPopup('<b>📍 Your Current Device Location</b>');
 
         const safeArr = Array.isArray(reports) ? reports : [];
         const mapBounds = [[currentGps.lat, currentGps.lng]];
@@ -358,8 +378,7 @@ export default function App() {
       setUser(userData);
       showToast(`Welcome back, ${userData.name}!`, 'success');
     } catch (err) {
-      const errMsg = err.response?.data?.message || 'Authentication failed.';
-      showToast(errMsg, 'error');
+      showToast(err.response?.data?.message || 'Authentication failed.', 'error');
     }
   };
 
@@ -460,7 +479,7 @@ export default function App() {
       }
       showToast('AI classification completed!', 'success');
     } catch (err) {
-      showToast('AI analysis failed. Please try again.', 'error');
+      showToast('AI analysis failed.', 'error');
     } finally {
       setAiAnalyzing(false);
     }
@@ -767,7 +786,7 @@ export default function App() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
                 <h3 className="text-xl font-black text-gray-800">Live Barangay Waste Map</h3>
-                <p className="text-xs text-gray-500">Real-time status pins geocoded across your municipal zone</p>
+                <p className="text-xs text-emerald-700 font-semibold">💡 Click anywhere on the map to manually select an exact pin point!</p>
               </div>
 
               {/* MAP TYPE SELECTOR */}
@@ -813,13 +832,14 @@ export default function App() {
             {/* Status Legend */}
             <div className="flex items-center justify-end space-x-4 text-xs font-bold bg-gray-50 px-4 py-2 rounded-xl border">
               <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-blue-600 inline-block shadow"></span><span>You</span></span>
+              <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-purple-600 inline-block shadow"></span><span>Selected Pin</span></span>
               <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-red-500 inline-block"></span><span>Pending</span></span>
               <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-amber-500 inline-block"></span><span>In Progress</span></span>
               <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span><span>Collected</span></span>
             </div>
 
-            {/* Leaflet Map Canvas */}
-            <div ref={mapContainerRef} className="w-full h-96 rounded-2xl border shadow-inner z-10"></div>
+            {/* Leaflet Canvas */}
+            <div ref={mapContainerRef} className="w-full h-96 rounded-2xl border shadow-inner z-10 cursor-crosshair"></div>
           </div>
         )}
 
@@ -828,7 +848,7 @@ export default function App() {
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div>
               <h3 className="text-xl font-black text-gray-800">Submit Waste Report</h3>
-              <p className="text-xs text-gray-500">Type your barangay or street name to pin it on the municipal map</p>
+              <p className="text-xs text-gray-500">Use high-precision GPS or tap on the map to pin your exact location</p>
             </div>
 
             <form onSubmit={handleCreateReport} className="space-y-4">
@@ -870,16 +890,25 @@ export default function App() {
                 </div>
               </div>
 
-              <div>
+              {/* High Accuracy Hardware GPS Button */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={handleGetGpsLocation}
-                  className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs py-2.5 rounded-xl transition flex items-center justify-center space-x-2"
+                  className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs py-2.5 rounded-xl transition flex items-center justify-center space-x-1.5"
                 >
-                  <span>📍 Or Click to Pin Precise Device GPS Coordinates</span>
+                  <span>📡 Precise Hardware GPS Location</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('map')}
+                  className="bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 font-bold text-xs py-2.5 rounded-xl transition flex items-center justify-center space-x-1.5"
+                >
+                  <span>📌 Tap Location Directly on Map</span>
                 </button>
               </div>
 
+              {/* File Uploader */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Upload Photo (Optional)</label>
                 <input
