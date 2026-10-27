@@ -62,7 +62,7 @@ export default function App() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Detect Live Device Geolocation
+  // Detect Live Device Geolocation in Background
   useEffect(() => {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -77,32 +77,6 @@ export default function App() {
       );
     }
   }, []);
-
-  // GPS Button Handler
-  const handleGetGpsLocation = () => {
-    if ('geolocation' in navigator) {
-      showToast('Fetching GPS coordinates...', 'info');
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const lat = position.coords.latitude;
-          const lng = position.coords.longitude;
-          setCurrentGps({ lat, lng });
-          setNewReport((prev) => ({
-            ...prev,
-            lat,
-            lng,
-            locationName: prev.locationName || `GPS Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
-          }));
-          showToast('📍 GPS Location Captured!', 'success');
-        },
-        () => {
-          showToast('Could not fetch GPS location. Check browser permissions.', 'warning');
-        }
-      );
-    } else {
-      showToast('Geolocation is not supported by your browser.', 'error');
-    }
-  };
 
   // File Upload Handlers
   const handleReportFileChange = (e) => {
@@ -315,7 +289,7 @@ export default function App() {
         imageUrl: aiImage,
       });
       setAiResult(res.data);
-      if (res.data?.category) {
+      if (res.data?.category && res.data.category !== 'Invalid Item') {
         setNewReport((prev) => ({ ...prev, wasteType: res.data.category }));
       }
       showToast('AI classification completed!', 'success');
@@ -484,7 +458,6 @@ export default function App() {
             📋 Barangay Feed ({safeReports.length})
           </button>
 
-          {/* TAB VISIBILITY: Only Residents and Admins see "Report Uncollected Waste" */}
           {(user.role === 'Resident' || user.role === 'Admin') && (
             <button
               onClick={() => setActiveTab('new-report')}
@@ -621,7 +594,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: CREATE WASTE REPORT (Only rendered for Residents and Admins) */}
+        {/* TAB 2: CREATE WASTE REPORT */}
         {activeTab === 'new-report' && (user.role === 'Resident' || user.role === 'Admin') && (
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div>
@@ -666,16 +639,6 @@ export default function App() {
                     onChange={(e) => setNewReport({ ...newReport, locationName: e.target.value })}
                   />
                 </div>
-              </div>
-
-              <div>
-                <button
-                  type="button"
-                  onClick={handleGetGpsLocation}
-                  className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs py-2.5 rounded-xl transition flex items-center justify-center space-x-1.5"
-                >
-                  <span>📡 Attach Current Device GPS Location</span>
-                </button>
               </div>
 
               <div>
