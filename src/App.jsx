@@ -58,6 +58,31 @@ export default function App() {
   };
 
   // ---------------------------------------------------------------------------
+  // FILE READERS (IMAGE UPLOAD HANDLERS)
+  // ---------------------------------------------------------------------------
+  const handleReportFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewReport((prev) => ({ ...prev, imageUrl: reader.result }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleAiFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setAiImage(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // FETCH REPORTS & WEBSOCKET SYNC
   // ---------------------------------------------------------------------------
   const fetchReports = useCallback(async () => {
@@ -218,7 +243,7 @@ export default function App() {
   const handleAiClassify = async (e) => {
     e.preventDefault();
     if (!aiDesc && !aiImage) {
-      showToast('Please enter a description or image URL.', 'warning');
+      showToast('Please enter a description or upload an image file.', 'warning');
       return;
     }
 
@@ -497,7 +522,7 @@ export default function App() {
                     </div>
 
                     {report.imageUrl && (
-                      <img src={report.imageUrl} alt="Report Waste" className="w-full h-44 object-cover rounded-xl border" />
+                      <img src={report.imageUrl} alt="Report Waste" className="w-full h-48 object-cover rounded-xl border" />
                     )}
 
                     {/* Admin & Collector Status Controls */}
@@ -570,15 +595,27 @@ export default function App() {
                 </div>
               </div>
 
+              {/* IMAGE FILE UPLODER FOR REPORT */}
               <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Photo URL (Optional)</label>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Upload Photo (Optional)</label>
                 <input
-                  type="url"
-                  placeholder="https://.../photo.jpg"
-                  className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                  value={newReport.imageUrl}
-                  onChange={(e) => setNewReport({ ...newReport, imageUrl: e.target.value })}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleReportFileChange}
+                  className="w-full border rounded-xl p-2.5 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-100 file:text-emerald-800 hover:file:bg-emerald-200 cursor-pointer"
                 />
+                {newReport.imageUrl && (
+                  <div className="mt-3 relative inline-block">
+                    <img src={newReport.imageUrl} alt="Selected Preview" className="h-28 rounded-xl border object-cover shadow-sm" />
+                    <button
+                      type="button"
+                      onClick={() => setNewReport({ ...newReport, imageUrl: '' })}
+                      className="block mt-1 text-xs text-red-600 font-bold hover:underline"
+                    >
+                      ✕ Remove Photo
+                    </button>
+                  </div>
+                )}
               </div>
 
               <button
@@ -597,24 +634,43 @@ export default function App() {
             <div className="text-center space-y-1">
               <span className="text-3xl">🤖</span>
               <h3 className="text-xl font-black text-gray-800">Gemini AI Waste Classifier</h3>
-              <p className="text-xs text-gray-500">Unsure whether item is Malata or Dili Malata? Ask Gemini vision AI.</p>
+              <p className="text-xs text-gray-500">Unsure whether item is Malata or Dili Malata? Upload a file or picture.</p>
             </div>
 
             <form onSubmit={handleAiClassify} className="space-y-4">
-              <input
-                type="text"
-                placeholder="Item description (e.g., banana peel, plastic bottle, cardboard box)"
-                className="w-full border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                value={aiDesc}
-                onChange={(e) => setAiDesc(e.target.value)}
-              />
-              <input
-                type="url"
-                placeholder="Image URL (e.g. https://.../item.jpg)"
-                className="w-full border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                value={aiImage}
-                onChange={(e) => setAiImage(e.target.value)}
-              />
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Item Description</label>
+                <input
+                  type="text"
+                  placeholder="e.g., banana peel, plastic bottle, cardboard box"
+                  className="w-full border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                  value={aiDesc}
+                  onChange={(e) => setAiDesc(e.target.value)}
+                />
+              </div>
+
+              {/* IMAGE FILE UPLOADER FOR AI CLASSIFIER */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Select / Upload Image File</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAiFileChange}
+                  className="w-full border rounded-xl p-2.5 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-100 file:text-emerald-800 hover:file:bg-emerald-200 cursor-pointer"
+                />
+                {aiImage && (
+                  <div className="mt-3 inline-block">
+                    <img src={aiImage} alt="AI Preview" className="h-28 rounded-xl border object-cover shadow-sm" />
+                    <button
+                      type="button"
+                      onClick={() => setAiImage('')}
+                      className="block mt-1 text-xs text-red-600 font-bold hover:underline"
+                    >
+                      ✕ Remove Photo
+                    </button>
+                  </div>
+                )}
+              </div>
 
               <button
                 type="submit"
