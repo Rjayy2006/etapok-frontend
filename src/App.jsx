@@ -204,9 +204,9 @@ export default function App() {
   const handleCreateReport = async (e) => {
     e.preventDefault();
 
-    // Guard: Collectors cannot submit waste reports
-    if (user?.role === 'Collector') {
-      showToast('Garbage Collectors are not permitted to submit waste reports.', 'warning');
+    // Guard: Only Residents are permitted to submit waste reports
+    if (user?.role !== 'Resident') {
+      showToast('Only Residents are permitted to submit waste reports.', 'warning');
       return;
     }
 
@@ -466,7 +466,8 @@ export default function App() {
             📋 {user?.role === 'Resident' ? 'My Submission History' : 'Barangay Feed'} ({visibleReports.length})
           </button>
 
-          {(user.role === 'Resident' || user.role === 'Admin') && (
+          {/* TAB VISIBILITY: Only Residents see "Report Uncollected Waste" */}
+          {user.role === 'Resident' && (
             <button
               onClick={() => setActiveTab('new-report')}
               className={`py-4 border-b-2 transition ${
@@ -610,8 +611,8 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: CREATE WASTE REPORT */}
-        {activeTab === 'new-report' && (user.role === 'Resident' || user.role === 'Admin') && (
+        {/* TAB 2: CREATE WASTE REPORT (Exclusively for Resident Role) */}
+        {activeTab === 'new-report' && user.role === 'Resident' && (
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div>
               <h3 className="text-xl font-black text-gray-800">Submit Waste Report</h3>
