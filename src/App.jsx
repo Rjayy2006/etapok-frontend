@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
@@ -330,7 +330,7 @@ export default function App() {
     }
   };
 
-  // Filtering Logic
+  // Filtering & Computed Metrics
   const safeReports = Array.isArray(reports) ? reports : [];
   const visibleReports = safeReports.filter((r) => {
     if (!r) return false;
@@ -339,6 +339,32 @@ export default function App() {
     }
     return true;
   });
+
+  // BARANGAY ANALYTICS & LEADERBOARD LOGIC
+  const barangayLeaderboard = useMemo(() => {
+    const map = {};
+
+    safeReports.forEach((r) => {
+      const bName = r.locationName || r.barangay || 'Abgao (Pob.)';
+      if (!map[bName]) {
+        map[bName] = {
+          name: bName,
+          total: 0,
+          malata: 0,
+          diliMalata: 0,
+          collected: 0,
+          pending: 0,
+        };
+      }
+      map[bName].total += 1;
+      if (r.wasteType === 'Malata') map[bName].malata += 1;
+      if (r.wasteType === 'Dili Malata') map[bName].diliMalata += 1;
+      if (r.status === 'Collected') map[bName].collected += 1;
+      if (r.status === 'Pending') map[bName].pending += 1;
+    });
+
+    return Object.values(map).sort((a, b) => b.total - a.total);
+  }, [safeReports]);
 
   const totalReports = visibleReports.length;
   const malataCount = visibleReports.filter((r) => r && r.wasteType === 'Malata').length;
@@ -515,19 +541,32 @@ export default function App() {
           )}
 
           {user.role === 'Admin' && (
-            <button
-              onClick={() => {
-                setActiveTab('users');
-                fetchUsers();
-              }}
-              className={`py-4 border-b-2 transition ${
-                activeTab === 'users'
-                  ? 'border-emerald-600 text-emerald-800'
-                  : 'border-transparent text-gray-500 hover:text-gray-800'
-              }`}
-            >
-              👥 Registered Accounts ({registeredUsers.length})
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  setActiveTab('users');
+                  fetchUsers();
+                }}
+                className={`py-4 border-b-2 transition ${
+                  activeTab === 'users'
+                    ? 'border-emerald-600 text-emerald-800'
+                    : 'border-transparent text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                👥 Registered Accounts ({registeredUsers.length})
+              </button>
+
+              <button
+                onClick={() => setActiveTab('analytics')}
+                className={`py-4 border-b-2 transition ${
+                  activeTab === 'analytics'
+                    ? 'border-emerald-600 text-emerald-800'
+                    : 'border-transparent text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                📊 Barangay Analytics & Leaderboard
+              </button>
+            </>
           )}
 
           <button
@@ -814,7 +853,107 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 4: AI CLASSIFIER */}
+        {/* TAB 4: BARANGAY ANALYTICS & LEADERBOARD (Admin Only) */}
+        {activeTab === 'analytics' && user.role === 'Admin' && (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-black text-gray-800">Maasin City Barangay Waste Analytics</h3>
+              <p className="text-xs text-gray-500">Live waste reporting frequency, segregation metrics, and collection performance by barangay</p>
+            </div>
+
+            {/* TOP 3 LEADERBOARD BADGES */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {barangayLeaderboard.slice(0, 3).map((item, index) => {
+                const rate = item.total ? Math.round((item.collected / item.total) * 100) : 0;
+                const medal = index === 0 ? '🥇 #1 High Volume' : index === 1 ? '🥈 #2 High Volume' : '🥉 #3 High Volume';
+                const badgeBg = index === 0 ? 'bg-amber-100 text-amber-900 border-amber-300' : index === 1 ? 'bg-gray-100 text-gray-800 border-gray-300' : 'bg-orange-100 text-orange-900 border-orange-300';
+
+                return (
+                  <div key={item.name} className="bg-white p-6 rounded-2xl border shadow-sm relative overflow-hidden space-y-3">
+                    <span className={`text-xs font-black px-3 py-1 rounded-full border ${badgeBg}`}>
+                      {medal}
+                    </span>
+                    <h4 className="text-xl font-black text-gray-900 mt-2">{item.name}</h4>
+
+                    <div className="grid grid-cols-2 gap-2 text-center pt-2">
+                      <div className="bg-gray-50 p-2 rounded-xl">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase">Total Waste</span>
+                        <p className="text-lg font-black text-gray-800">{item.total}</p>
+                      </div>
+                      <div className="bg-emerald-50 p-2 rounded-xl">
+                        <span className="text-[10px] font-bold text-emerald-600 uppercase">Cleared</span>
+                        <p className="text-lg font-black text-emerald-700">{rate}%</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* FULL BARANGAY LEADERBOARD TABLE */}
+            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+              <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                <h4 className="font-bold text-sm text-gray-800">Barangay Volume & Collection Efficiency Ranking</h4>
+                <span className="text-xs text-gray-500">Active Barangays: {barangayLeaderboard.length}</span>
+              </div>
+
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-emerald-800 text-white text-xs uppercase font-bold">
+                    <th className="p-4">Rank</th>
+                    <th className="p-4">Barangay</th>
+                    <th className="p-4">Total Submissions</th>
+                    <th className="p-4">Malata / Dili Malata</th>
+                    <th className="p-4">Pending Pickups</th>
+                    <th className="p-4">Collection Rate</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-sm">
+                  {barangayLeaderboard.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-6 text-center text-gray-400">
+                        No waste reports recorded yet to build analytics.
+                      </td>
+                    </tr>
+                  ) : (
+                    barangayLeaderboard.map((b, idx) => {
+                      const rate = b.total ? Math.round((b.collected / b.total) * 100) : 0;
+
+                      return (
+                        <tr key={b.name} className="hover:bg-gray-50">
+                          <td className="p-4 font-black text-gray-500">#{idx + 1}</td>
+                          <td className="p-4 font-extrabold text-gray-900">{b.name}</td>
+                          <td className="p-4 font-bold text-gray-800">{b.total}</td>
+                          <td className="p-4 text-xs font-semibold">
+                            <span className="text-emerald-700">{b.malata} Bio</span> / <span className="text-amber-700">{b.diliMalata} Non-Bio</span>
+                          </td>
+                          <td className="p-4">
+                            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${b.pending > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                              {b.pending} Pending
+                            </span>
+                          </td>
+                          <td className="p-4 w-48">
+                            <div className="flex items-center space-x-2">
+                              <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                                <div
+                                  className="bg-emerald-600 h-2.5 rounded-full transition-all duration-500"
+                                  style={{ width: `${rate}%` }}
+                                ></div>
+                              </div>
+                              <span className="text-xs font-bold text-gray-700 min-w-[35px]">{rate}%</span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: AI CLASSIFIER */}
         {activeTab === 'ai' && (
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div className="text-center space-y-1">
