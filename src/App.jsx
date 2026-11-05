@@ -7,6 +7,7 @@ import {
   getOfflineReports,
   deleteOfflineReport,
 } from './utils/offlineStore';
+import { MAASIN_BARANGAYS } from './constants/barangays';
 
 const API_BASE_URL = 'https://etapok-backend.onrender.com/api/e-tapok';
 const SOCKET_URL = 'https://etapok-backend.onrender.com';
@@ -27,17 +28,18 @@ export default function App() {
     email: '',
     password: '',
     role: 'Resident',
-    barangay: 'Barangay Central',
+    barangay: 'Abgao (Pob.)',
   });
 
-  // User Current Geolocation State
+  // Current GPS Geolocation State
   const [currentGps, setCurrentGps] = useState({ lat: 10.1336, lng: 124.8415 });
 
-  // Data & App Navigation State
+  // Data & Dashboard Navigation State
   const [reports, setReports] = useState([]);
   const [registeredUsers, setRegisteredUsers] = useState([]);
   const [activeTab, setActiveTab] = useState('reports');
   const [filterWasteType, setFilterWasteType] = useState('All');
+  const [filterBarangay, setFilterBarangay] = useState('All');
   const [toast, setToast] = useState(null);
 
   // AI Classification State
@@ -50,7 +52,7 @@ export default function App() {
   const [newReport, setNewReport] = useState({
     description: '',
     wasteType: 'Malata',
-    locationName: 'Lib-og',
+    locationName: 'Abgao (Pob.)',
     lat: null,
     lng: null,
     imageUrl: '',
@@ -63,40 +65,44 @@ export default function App() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Detect Live Device Geolocation in Background
+  // Background Device Geolocation Detection
   useEffect(() => {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          const lat = position.coords.latitude;
-          const lng = position.coords.longitude;
-          setCurrentGps({ lat, lng });
+          setCurrentGps({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
         },
-        (err) => {
-          console.warn('Geolocation access denied:', err.message);
-        }
+        (err) => console.warn('Geolocation access denied:', err.message)
       );
     }
   }, []);
 
+  // Image Upload Handlers with File Size Validation
   const handleReportFileChange = (e) => {
-  const file = e.target.files[0];
-  if (file) {
-    if (file.size > 5 * 1024 * 1024) {
-      showToast('Image file size must be under 5MB.', 'warning');
-      return;
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        showToast('Image file size must be under 5MB.', 'warning');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewReport((prev) => ({ ...prev, imageUrl: reader.result }));
+      };
+      reader.readAsDataURL(file);
     }
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setNewReport((prev) => ({ ...prev, imageUrl: reader.result }));
-    };
-    reader.readAsDataURL(file);
-  }
-};
+  };
 
   const handleAiFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        showToast('Image file size must be under 5MB.', 'warning');
+        return;
+      }
       const reader = new FileReader();
       reader.onloadend = () => {
         setAiImage(reader.result);
@@ -117,7 +123,7 @@ export default function App() {
     }
   }, [token]);
 
-  // Fetch Registered Users Directory (Admin Only)
+  // Fetch Registered Accounts (Admin Only)
   const fetchUsers = useCallback(async () => {
     if (!token || user?.role !== 'Admin') return;
     try {
@@ -126,7 +132,7 @@ export default function App() {
       });
       setRegisteredUsers(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      console.error('Error fetching user list:', err);
+      console.error('Error fetching users:', err);
     }
   }, [token, user]);
 
@@ -157,7 +163,7 @@ export default function App() {
     }
   }, [isOnline, token, fetchReports]);
 
-  // Socket Listener Setup for Live Realtime CRUD Updates
+  // Real-time Socket.IO Listeners
   useEffect(() => {
     fetchReports();
     if (user?.role === 'Admin') fetchUsers();
@@ -191,7 +197,7 @@ export default function App() {
     }
   }, [isOnline, syncOfflineReports]);
 
-  // Auth Handlers
+  // Auth Submit Handler
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     const endpoint = publicView === 'login' ? '/auth/login' : '/auth/register';
@@ -237,14 +243,14 @@ export default function App() {
       ...newReport,
       lat: newReport.lat || currentGps.lat,
       lng: newReport.lng || currentGps.lng,
-      barangay: user?.barangay || 'Barangay Central',
+      barangay: newReport.locationName || user?.barangay || 'Abgao (Pob.)',
       userName: user?.name || 'Anonymous Resident',
     };
 
     if (!isOnline) {
       await saveReportOffline(reportPayload);
       showToast('Saved offline. Will automatically sync when reconnected!', 'info');
-      setNewReport({ description: '', wasteType: 'Malata', locationName: 'Lib-og', lat: null, lng: null, imageUrl: '' });
+      setNewReport({ description: '', wasteType: 'Malata', locationName: 'Abgao (Pob.)', lat: null, lng: null, imageUrl: '' });
       return;
     }
 
@@ -253,7 +259,7 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` },
       });
       showToast('Waste report submitted successfully!', 'success');
-      setNewReport({ description: '', wasteType: 'Malata', locationName: 'Lib-og', lat: null, lng: null, imageUrl: '' });
+      setNewReport({ description: '', wasteType: 'Malata', locationName: 'Abgao (Pob.)', lat: null, lng: null, imageUrl: '' });
       setActiveTab('reports');
       fetchReports();
     } catch (err) {
@@ -261,46 +267,43 @@ export default function App() {
     }
   };
 
-  // --- OPTIMISTIC UPDATE (U) ---
-const handleStatusUpdate = async (reportId, newStatus) => {
-  // 1. Instantly update UI before network request
-  setReports((prev) =>
-    prev.map((r) => (r._id === reportId ? { ...r, status: newStatus } : r))
-  );
-  showToast(`Report updated to "${newStatus}"`, 'success');
-
-  // 2. Send network request in background
-  try {
-    await axios.put(
-      `${API_BASE_URL}/reports/${reportId}/status`,
-      { status: newStatus },
-      { headers: { Authorization: `Bearer ${token}` } }
+  // --- OPTIMISTIC UPDATE (U) --- 0ms Lag
+  const handleStatusUpdate = async (reportId, newStatus) => {
+    setReports((prev) =>
+      prev.map((r) => (r._id === reportId ? { ...r, status: newStatus } : r))
     );
-  } catch (err) {
-    showToast('Network error: Reverting status change.', 'error');
-    fetchReports(); // Revert back to database state on failure
-  }
-};
+    showToast(`Report updated to "${newStatus}"`, 'success');
 
-// --- OPTIMISTIC DELETE (D) ---
-const handleDeleteReport = async (reportId) => {
-  if (!window.confirm('Are you sure you want to delete this waste report?')) return;
+    try {
+      await axios.put(
+        `${API_BASE_URL}/reports/${reportId}/status`,
+        { status: newStatus },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch (err) {
+      showToast('Network error: Reverting status update.', 'error');
+      fetchReports();
+    }
+  };
 
-  // 1. Instantly remove card from UI before network request
-  setReports((prev) => prev.filter((r) => r._id !== reportId));
-  showToast('Report deleted successfully.', 'info');
+  // --- OPTIMISTIC DELETE (D) --- 0ms Lag
+  const handleDeleteReport = async (reportId) => {
+    if (!window.confirm('Are you sure you want to delete this waste report?')) return;
 
-  // 2. Perform backend delete in background
-  try {
-    await axios.delete(`${API_BASE_URL}/reports/${reportId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-  } catch (err) {
-    showToast('Failed to delete report on server.', 'error');
-    fetchReports(); // Revert back to database state on failure
-  }
-};
-  // AI Classifier Handler
+    setReports((prev) => prev.filter((r) => r._id !== reportId));
+    showToast('Report deleted successfully.', 'info');
+
+    try {
+      await axios.delete(`${API_BASE_URL}/reports/${reportId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      showToast('Failed to delete report on server.', 'error');
+      fetchReports();
+    }
+  };
+
+  // AI Classification Handler
   const handleAiClassify = async (e) => {
     e.preventDefault();
     if (!aiDesc && !aiImage) {
@@ -327,7 +330,7 @@ const handleDeleteReport = async (reportId) => {
     }
   };
 
-  // Role Filtering
+  // Filtering Logic
   const safeReports = Array.isArray(reports) ? reports : [];
   const visibleReports = safeReports.filter((r) => {
     if (!r) return false;
@@ -344,11 +347,13 @@ const handleDeleteReport = async (reportId) => {
   const collectionRate = totalReports ? Math.round((collectedCount / totalReports) * 100) : 0;
 
   const filteredReports = visibleReports.filter((r) => {
-    if (filterWasteType === 'All') return true;
-    return r && r.wasteType === filterWasteType;
+    if (!r) return false;
+    const matchesType = filterWasteType === 'All' || r.wasteType === filterWasteType;
+    const matchesBarangay = filterBarangay === 'All' || r.locationName === filterBarangay || r.barangay === filterBarangay;
+    return matchesType && matchesBarangay;
   });
 
-  // Public Unauthenticated View
+  // Public Landing & Authentication View
   if (!token || !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
@@ -358,7 +363,7 @@ const handleDeleteReport = async (reportId) => {
               <span className="text-3xl">🌱</span>
               <div>
                 <h1 className="font-black text-2xl tracking-wide">E-TAPOK</h1>
-                <p className="text-xs text-emerald-200">Public Municipal Waste Portal</p>
+                <p className="text-xs text-emerald-200">Maasin City Municipal Waste Portal</p>
               </div>
             </div>
             <div className="flex items-center space-x-3">
@@ -372,8 +377,8 @@ const handleDeleteReport = async (reportId) => {
           <div className="flex-grow flex items-center justify-center p-6 bg-emerald-950">
             <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full relative">
               <button onClick={() => setPublicView('public')} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xs font-bold bg-gray-100 px-2.5 py-1 rounded-full">✕ Back</button>
-              <h2 className="text-2xl font-black text-emerald-800 text-center mb-1">{publicView === 'login' ? 'Sign In' : 'Register'}</h2>
-              <p className="text-xs text-gray-500 text-center mb-6">Access your local barangay portal</p>
+              <h2 className="text-2xl font-black text-emerald-800 text-center mb-1">{publicView === 'login' ? 'Sign In' : 'Register Account'}</h2>
+              <p className="text-xs text-gray-500 text-center mb-6">Access your local Maasin City barangay portal</p>
 
               <form onSubmit={handleAuthSubmit} className="space-y-4">
                 {publicView === 'register' && (
@@ -383,7 +388,7 @@ const handleDeleteReport = async (reportId) => {
                   </div>
                 )}
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Email</label>
+                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Email Address</label>
                   <input type="email" required className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" value={authFormData.email} onChange={(e) => setAuthFormData({ ...authFormData, email: e.target.value })} />
                 </div>
                 <div>
@@ -394,18 +399,22 @@ const handleDeleteReport = async (reportId) => {
                   <>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Account Role</label>
-                      <select className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" value={authFormData.role} onChange={(e) => setAuthFormData({ ...authFormData, role: e.target.value })}>
+                      <select className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none bg-white" value={authFormData.role} onChange={(e) => setAuthFormData({ ...authFormData, role: e.target.value })}>
                         <option value="Resident">Resident (Report Waste)</option>
                         <option value="Collector">Garbage Collector (Manage Routes)</option>
                       </select>
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Barangay Zone</label>
-                      <input type="text" required className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" value={authFormData.barangay} onChange={(e) => setAuthFormData({ ...authFormData, barangay: e.target.value })} />
+                      <select required className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none bg-white" value={authFormData.barangay} onChange={(e) => setAuthFormData({ ...authFormData, barangay: e.target.value })}>
+                        {MAASIN_BARANGAYS.map((b) => (
+                          <option key={b} value={b}>{b}</option>
+                        ))}
+                      </select>
                     </div>
                   </>
                 )}
-                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow transition">{publicView === 'login' ? 'Sign In' : 'Register'}</button>
+                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow transition">{publicView === 'login' ? 'Sign In' : 'Create Account'}</button>
               </form>
             </div>
           </div>
@@ -413,14 +422,14 @@ const handleDeleteReport = async (reportId) => {
           <main className="flex-grow">
             <section className="bg-emerald-800 text-white py-16 px-6 text-center">
               <h2 className="text-4xl font-black mb-3">Smarter Segregation, Cleaner Barangays</h2>
-              <p className="text-emerald-100 max-w-xl mx-auto text-sm">Report uncollected waste, manage collection routes, and classify items into Malata or Dili Malata using AI.</p>
+              <p className="text-emerald-100 max-w-xl mx-auto text-sm">Report uncollected waste, track pickup status, and classify items into Malata or Dili Malata across all 70 barangays of Maasin City.</p>
             </section>
             <section className="max-w-7xl mx-auto px-6 -mt-8">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="bg-white p-6 rounded-2xl shadow text-center"><p className="text-xs font-bold text-gray-400">Total Reports</p><p className="text-3xl font-black text-gray-800">{totalReports}</p></div>
-                <div className="bg-white p-6 rounded-2xl shadow text-center"><p className="text-xs font-bold text-gray-400">Collection Rate</p><p className="text-3xl font-black text-emerald-600">{collectionRate}%</p></div>
-                <div className="bg-white p-6 rounded-2xl shadow text-center"><p className="text-xs font-bold text-gray-400">Malata</p><p className="text-3xl font-black text-emerald-800">{malataCount}</p></div>
-                <div className="bg-white p-6 rounded-2xl shadow text-center"><p className="text-xs font-bold text-gray-400">Dili Malata</p><p className="text-3xl font-black text-amber-600">{diliMalataCount}</p></div>
+                <div className="bg-white p-6 rounded-2xl shadow text-center"><p className="text-xs font-bold text-gray-400">Collection Efficiency</p><p className="text-3xl font-black text-emerald-600">{collectionRate}%</p></div>
+                <div className="bg-white p-6 rounded-2xl shadow text-center"><p className="text-xs font-bold text-gray-400">Malata (Bio)</p><p className="text-3xl font-black text-emerald-800">{malataCount}</p></div>
+                <div className="bg-white p-6 rounded-2xl shadow text-center"><p className="text-xs font-bold text-gray-400">Dili Malata (Non-Bio)</p><p className="text-3xl font-black text-amber-600">{diliMalataCount}</p></div>
               </div>
             </section>
           </main>
@@ -429,7 +438,7 @@ const handleDeleteReport = async (reportId) => {
     );
   }
 
-  // Authenticated Portal Dashboard
+  // Logged-In User Dashboard
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col font-sans">
       {toast && (
@@ -442,7 +451,7 @@ const handleDeleteReport = async (reportId) => {
 
       {!isOnline && (
         <div className="bg-amber-600 text-white text-center py-2 px-4 font-bold text-xs sticky top-0 z-50">
-          ⚠️ Offline Mode Active — Reports will be stored locally until connection is restored.
+          ⚠️ Offline Mode Active — Submissions are saved locally and will auto-sync when online.
         </div>
       )}
 
@@ -478,7 +487,7 @@ const handleDeleteReport = async (reportId) => {
         </div>
       </header>
 
-      {/* Navigation Tabs Bar */}
+      {/* Navigation Bar */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 flex space-x-6 text-sm font-bold">
           <button
@@ -556,15 +565,15 @@ const handleDeleteReport = async (reportId) => {
           </div>
         </div>
 
-        {/* TAB 1: REPORTS FEED (READ, UPDATE, DELETE) */}
+        {/* TAB 1: REPORTS FEED */}
         {activeTab === 'reports' && (
           <div className="space-y-4">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <h3 className="text-lg font-black text-gray-800">
                 {user?.role === 'Resident' ? 'My Submitted Waste History' : 'Barangay Waste Feed'}
               </h3>
-              <div className="flex items-center space-x-2 text-xs font-bold text-gray-600">
-                <span>Filter:</span>
+              <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-gray-600">
+                <span>Waste Type:</span>
                 <select
                   className="border rounded-xl px-3 py-1.5 outline-none bg-white"
                   value={filterWasteType}
@@ -574,6 +583,18 @@ const handleDeleteReport = async (reportId) => {
                   <option value="Malata">Malata (Biodegradable)</option>
                   <option value="Dili Malata">Dili Malata (Non-Bio)</option>
                 </select>
+
+                <span>Barangay:</span>
+                <select
+                  className="border rounded-xl px-3 py-1.5 outline-none bg-white"
+                  value={filterBarangay}
+                  onChange={(e) => setFilterBarangay(e.target.value)}
+                >
+                  <option value="All">All 70 Barangays</option>
+                  {MAASIN_BARANGAYS.map((b) => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -582,7 +603,7 @@ const handleDeleteReport = async (reportId) => {
                 <p className="text-sm font-bold">
                   {user?.role === 'Resident'
                     ? 'You have not submitted any waste reports yet.'
-                    : 'No waste reports recorded yet.'}
+                    : 'No matching waste reports found.'}
                 </p>
               </div>
             ) : (
@@ -597,7 +618,7 @@ const handleDeleteReport = async (reportId) => {
                           {report.wasteType || 'General Waste'}
                         </span>
                         <h4 className="font-extrabold text-base text-gray-900 mt-2">{report.description}</h4>
-                        <p className="text-xs text-gray-500 mt-1">📍 Location / Barangay: <span className="font-semibold text-gray-700">{report.locationName || 'Unspecified Zone'}</span></p>
+                        <p className="text-xs text-gray-500 mt-1">📍 Barangay: <span className="font-semibold text-gray-700">{report.locationName || report.barangay || 'Abgao (Pob.)'}</span></p>
                       </div>
 
                       <span className={`text-xs font-bold px-3 py-1 rounded-xl ${
@@ -609,7 +630,7 @@ const handleDeleteReport = async (reportId) => {
                     </div>
 
                     {report.imageUrl && (
-                      <img src={report.imageUrl} alt="Report Waste" className="w-full h-48 object-cover rounded-xl border" />
+                      <img src={report.imageUrl} alt="Waste Report" className="w-full h-48 object-cover rounded-xl border" />
                     )}
 
                     <div className="pt-2 border-t flex items-center justify-between gap-2">
@@ -652,12 +673,12 @@ const handleDeleteReport = async (reportId) => {
           </div>
         )}
 
-        {/* TAB 2: CREATE WASTE REPORT (Resident Only) */}
+        {/* TAB 2: CREATE REPORT (Resident Only) */}
         {activeTab === 'new-report' && user.role === 'Resident' && (
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div>
-              <h3 className="text-xl font-black text-gray-800">Submit Waste Report</h3>
-              <p className="text-xs text-gray-500">Provide the details and barangay location of the uncollected waste</p>
+              <h3 className="text-xl font-black text-gray-800">Submit Waste Pickup Request</h3>
+              <p className="text-xs text-gray-500">Provide details and select the exact Maasin City barangay location</p>
             </div>
 
             <form onSubmit={handleCreateReport} className="space-y-4">
@@ -666,7 +687,7 @@ const handleDeleteReport = async (reportId) => {
                 <textarea
                   required
                   rows={3}
-                  placeholder="Describe the uncollected waste (e.g., 2 bags of plastic bottles near the store)"
+                  placeholder="Describe uncollected waste (e.g., 2 bags of plastic bottles near the barangay basketball court)"
                   className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                   value={newReport.description}
                   onChange={(e) => setNewReport({ ...newReport, description: e.target.value })}
@@ -675,9 +696,9 @@ const handleDeleteReport = async (reportId) => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Segregation Type</label>
+                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Waste Category</label>
                   <select
-                    className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
                     value={newReport.wasteType}
                     onChange={(e) => setNewReport({ ...newReport, wasteType: e.target.value })}
                   >
@@ -687,20 +708,22 @@ const handleDeleteReport = async (reportId) => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Location / Barangay Name</label>
-                  <input
-                    type="text"
+                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Barangay Location</label>
+                  <select
                     required
-                    placeholder="e.g. Abgao, Lib-og, Combado, Tunga-tunga"
-                    className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
                     value={newReport.locationName}
                     onChange={(e) => setNewReport({ ...newReport, locationName: e.target.value })}
-                  />
+                  >
+                    {MAASIN_BARANGAYS.map((b) => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Upload Photo (Optional)</label>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Upload Photo (Max 5MB)</label>
                 <input
                   type="file"
                   accept="image/*"
@@ -725,19 +748,19 @@ const handleDeleteReport = async (reportId) => {
                 type="submit"
                 className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-3.5 rounded-xl shadow transition"
               >
-                Submit Waste Pickup Request
+                Submit Pickup Request
               </button>
             </form>
           </div>
         )}
 
-        {/* TAB 3: REGISTERED USERS DIRECTORY (Admin Only) */}
+        {/* TAB 3: REGISTERED ACCOUNTS DIRECTORY (Admin Only) */}
         {activeTab === 'users' && user.role === 'Admin' && (
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <div>
                 <h3 className="text-lg font-black text-gray-800">Registered Accounts Directory</h3>
-                <p className="text-xs text-gray-500">List of all registered Residents, Collectors, and Officials</p>
+                <p className="text-xs text-gray-500">List of registered Residents, Garbage Collectors, and Admins</p>
               </div>
               <button
                 onClick={fetchUsers}
@@ -791,13 +814,13 @@ const handleDeleteReport = async (reportId) => {
           </div>
         )}
 
-        {/* TAB 4: GEMINI AI CLASSIFIER */}
+        {/* TAB 4: AI CLASSIFIER */}
         {activeTab === 'ai' && (
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div className="text-center space-y-1">
               <span className="text-3xl">🤖</span>
               <h3 className="text-xl font-black text-gray-800">Gemini AI Waste Classifier</h3>
-              <p className="text-xs text-gray-500">Unsure whether item is Malata or Dili Malata? Upload a file or picture.</p>
+              <p className="text-xs text-gray-500">Classify waste items into Malata or Dili Malata automatically</p>
             </div>
 
             <form onSubmit={handleAiClassify} className="space-y-4">
@@ -805,7 +828,7 @@ const handleDeleteReport = async (reportId) => {
                 <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Item Description</label>
                 <input
                   type="text"
-                  placeholder="e.g., banana peel, plastic bottle, cardboard box"
+                  placeholder="e.g. banana peel, plastic bottle, cardboard box"
                   className="w-full border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
                   value={aiDesc}
                   onChange={(e) => setAiDesc(e.target.value)}
@@ -813,7 +836,7 @@ const handleDeleteReport = async (reportId) => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Select / Upload Image File</label>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Select / Upload Image File (Max 5MB)</label>
                 <input
                   type="file"
                   accept="image/*"
