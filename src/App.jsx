@@ -35,6 +35,7 @@ export default function App() {
 
   // Data & App Navigation State
   const [reports, setReports] = useState([]);
+  const [registeredUsers, setRegisteredUsers] = useState([]);
   const [activeTab, setActiveTab] = useState('reports');
   const [filterWasteType, setFilterWasteType] = useState('All');
   const [toast, setToast] = useState(null);
@@ -113,6 +114,19 @@ export default function App() {
     }
   }, [token]);
 
+  // Fetch Registered Users Directory (Admin Only)
+  const fetchUsers = useCallback(async () => {
+    if (!token || user?.role !== 'Admin') return;
+    try {
+      const res = await axios.get(`${API_BASE_URL}/users`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setRegisteredUsers(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error('Error fetching user list:', err);
+    }
+  }, [token, user]);
+
   // Offline Sync
   const syncOfflineReports = useCallback(async () => {
     if (!isOnline || !token) return;
@@ -143,6 +157,8 @@ export default function App() {
   // Socket Listener Setup for Live Realtime CRUD Updates
   useEffect(() => {
     fetchReports();
+    if (user?.role === 'Admin') fetchUsers();
+
     socketRef.current = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
 
     socketRef.current.on('report_created', (data) => {
@@ -164,7 +180,7 @@ export default function App() {
     return () => {
       if (socketRef.current) socketRef.current.disconnect();
     };
-  }, [fetchReports]);
+  }, [fetchReports, fetchUsers, user]);
 
   useEffect(() => {
     if (isOnline) {
@@ -204,7 +220,6 @@ export default function App() {
   const handleCreateReport = async (e) => {
     e.preventDefault();
 
-    // Guard: Only Residents are permitted to submit waste reports
     if (user?.role !== 'Resident') {
       showToast('Only Residents are permitted to submit waste reports.', 'warning');
       return;
@@ -300,14 +315,14 @@ export default function App() {
     }
   };
 
-  // Filter reports according to Role: Residents only see their own submitted items
+  // Role Filtering
   const safeReports = Array.isArray(reports) ? reports : [];
   const visibleReports = safeReports.filter((r) => {
     if (!r) return false;
     if (user?.role === 'Resident') {
       return r.userName && user?.name && r.userName.trim().toLowerCase() === user.name.trim().toLowerCase();
     }
-    return true; // Admins and Collectors see all reports
+    return true;
   });
 
   const totalReports = visibleReports.length;
@@ -321,7 +336,7 @@ export default function App() {
     return r && r.wasteType === filterWasteType;
   });
 
-  // Public View
+  // Public Unauthenticated View
   if (!token || !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
@@ -366,11 +381,10 @@ export default function App() {
                 {publicView === 'register' && (
                   <>
                     <div>
-                      <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Role</label>
+                      <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Account Role</label>
                       <select className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" value={authFormData.role} onChange={(e) => setAuthFormData({ ...authFormData, role: e.target.value })}>
                         <option value="Resident">Resident (Report Waste)</option>
                         <option value="Collector">Garbage Collector (Manage Routes)</option>
-                        <option value="Admin">LGU Official (Executive Dashboard)</option>
                       </select>
                     </div>
                     <div>
@@ -466,7 +480,6 @@ export default function App() {
             📋 {user?.role === 'Resident' ? 'My Submission History' : 'Barangay Feed'} ({visibleReports.length})
           </button>
 
-          {/* TAB VISIBILITY: Only Residents see "Report Uncollected Waste" */}
           {user.role === 'Resident' && (
             <button
               onClick={() => setActiveTab('new-report')}
@@ -477,6 +490,22 @@ export default function App() {
               }`}
             >
               ➕ Report Uncollected Waste
+            </button>
+          )}
+
+          {user.role === 'Admin' && (
+            <button
+              onClick={() => {
+                setActiveTab('users');
+                fetchUsers();
+              }}
+              className={`py-4 border-b-2 transition ${
+                activeTab === 'users'
+                  ? 'border-emerald-600 text-emerald-800'
+                  : 'border-transparent text-gray-500 hover:text-gray-800'
+              }`}
+            >
+              👥 Registered Accounts ({registeredUsers.length})
             </button>
           )}
 
@@ -611,7 +640,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: CREATE WASTE REPORT (Exclusively for Resident Role) */}
+        {/* TAB 2: CREATE WASTE REPORT (Resident Only) */}
         {activeTab === 'new-report' && user.role === 'Resident' && (
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div>
@@ -690,7 +719,67 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 3: GEMINI AI CLASSIFIER */}
+        {/* TAB 3: REGISTERED USERS DIRECTORY (Admin Only) */}
+        {activeTab === 'users' && user.role === 'Admin' && (
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-black text-gray-800">Registered Accounts Directory</h3>
+                <p className="text-xs text-gray-500">List of all registered Residents, Collectors, and Officials</p>
+              </div>
+              <button
+                onClick={fetchUsers}
+                className="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold text-xs px-3 py-2 rounded-xl transition"
+              >
+                🔄 Refresh Directory
+              </button>
+            </div>
+
+            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-emerald-800 text-white text-xs uppercase font-bold">
+                    <th className="p-4">Full Name</th>
+                    <th className="p-4">Email</th>
+                    <th className="p-4">Role</th>
+                    <th className="p-4">Barangay Zone</th>
+                    <th className="p-4">Registered Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-sm">
+                  {registeredUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-6 text-center text-gray-400">
+                        No registered accounts found.
+                      </td>
+                    </tr>
+                  ) : (
+                    registeredUsers.map((u) => (
+                      <tr key={u._id || Math.random()} className="hover:bg-gray-50">
+                        <td className="p-4 font-bold text-gray-900">{u.name}</td>
+                        <td className="p-4 text-gray-600">{u.email}</td>
+                        <td className="p-4">
+                          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                            u.role === 'Admin' ? 'bg-purple-100 text-purple-800' :
+                            u.role === 'Collector' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {u.role}
+                          </span>
+                        </td>
+                        <td className="p-4 text-gray-700">{u.barangay || 'Unspecified'}</td>
+                        <td className="p-4 text-xs text-gray-400">
+                          {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: GEMINI AI CLASSIFIER */}
         {activeTab === 'ai' && (
           <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border shadow-sm space-y-6">
             <div className="text-center space-y-1">
