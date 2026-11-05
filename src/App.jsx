@@ -79,17 +79,20 @@ export default function App() {
     }
   }, []);
 
-  // File Upload Handlers
   const handleReportFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewReport((prev) => ({ ...prev, imageUrl: reader.result }));
-      };
-      reader.readAsDataURL(file);
+  const file = e.target.files[0];
+  if (file) {
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Image file size must be under 5MB.', 'warning');
+      return;
     }
-  };
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setNewReport((prev) => ({ ...prev, imageUrl: reader.result }));
+    };
+    reader.readAsDataURL(file);
+  }
+};
 
   const handleAiFileChange = (e) => {
     const file = e.target.files[0];
@@ -258,36 +261,45 @@ export default function App() {
     }
   };
 
-  // --- UPDATE (U) ---
-  const handleStatusUpdate = async (reportId, newStatus) => {
-    try {
-      await axios.put(
-        `${API_BASE_URL}/reports/${reportId}/status`,
-        { status: newStatus },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      showToast(`Report updated to "${newStatus}"`, 'success');
-      fetchReports();
-    } catch (err) {
-      showToast('Failed to update status.', 'error');
-    }
-  };
+  // --- OPTIMISTIC UPDATE (U) ---
+const handleStatusUpdate = async (reportId, newStatus) => {
+  // 1. Instantly update UI before network request
+  setReports((prev) =>
+    prev.map((r) => (r._id === reportId ? { ...r, status: newStatus } : r))
+  );
+  showToast(`Report updated to "${newStatus}"`, 'success');
 
-  // --- DELETE (D) ---
-  const handleDeleteReport = async (reportId) => {
-    if (!window.confirm('Are you sure you want to delete this waste report?')) return;
+  // 2. Send network request in background
+  try {
+    await axios.put(
+      `${API_BASE_URL}/reports/${reportId}/status`,
+      { status: newStatus },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+  } catch (err) {
+    showToast('Network error: Reverting status change.', 'error');
+    fetchReports(); // Revert back to database state on failure
+  }
+};
 
-    try {
-      await axios.delete(`${API_BASE_URL}/reports/${reportId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      showToast('Report deleted successfully.', 'info');
-      fetchReports();
-    } catch (err) {
-      showToast('Failed to delete report.', 'error');
-    }
-  };
+// --- OPTIMISTIC DELETE (D) ---
+const handleDeleteReport = async (reportId) => {
+  if (!window.confirm('Are you sure you want to delete this waste report?')) return;
 
+  // 1. Instantly remove card from UI before network request
+  setReports((prev) => prev.filter((r) => r._id !== reportId));
+  showToast('Report deleted successfully.', 'info');
+
+  // 2. Perform backend delete in background
+  try {
+    await axios.delete(`${API_BASE_URL}/reports/${reportId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (err) {
+    showToast('Failed to delete report on server.', 'error');
+    fetchReports(); // Revert back to database state on failure
+  }
+};
   // AI Classifier Handler
   const handleAiClassify = async (e) => {
     e.preventDefault();
